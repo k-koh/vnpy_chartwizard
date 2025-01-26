@@ -13,6 +13,9 @@ from vnpy.trader.utility import BarGenerator, ZoneInfo
 from vnpy.trader.constant import Interval, Exchange
 from vnpy_spreadtrading.base import SpreadItem, EVENT_SPREAD_DATA
 
+from .rsi_item import RsiItem
+from .sma_item import SmaItem
+from .vqi_item import VqiItem
 from ..engine import APP_NAME, EVENT_CHART_HISTORY, ChartWizardEngine
 
 
@@ -46,7 +49,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.setTabsClosable(True)
         self.tab.tabCloseRequested.connect(self.close_tab)
 
-        self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit()
+        self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("JP225.OTC")
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新建图表")
         self.button.clicked.connect(self.new_chart)
@@ -68,8 +71,14 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart: ChartWidget = ChartWidget()
         chart.add_plot("candle", hide_x_axis=True)
         chart.add_plot("volume", maximum_height=200)
+        chart.add_plot("rsi", maximum_height=150)
+        chart.add_plot("vqi", maximum_height=150)
+
         chart.add_item(CandleItem, "candle", "candle")
         chart.add_item(VolumeItem, "volume", "volume")
+        chart.add_item(SmaItem, "sma", "candle")
+        chart.add_item(RsiItem, "rsi", "rsi")
+        chart.add_item(VqiItem, "vqi", "vqi")
         chart.add_cursor()
         return chart
 
