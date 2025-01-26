@@ -8,13 +8,6 @@ from vnpy.trader.ui import QtCore, QtGui
 from vnpy.trader.object import BarData
 from vnpy.chart.manager import BarManager
 
-
-from datetime import datetime
-from vnpy.trader.constant import Exchange, Interval
-from vnpy.trader.database import get_database
-from vnpy.chart import ChartWidget, VolumeItem, CandleItem
-from vnpy.trader.ui import create_qapp
-
 # Volatility Quality Index indicator
 
 class VqiItem(ChartItem):
@@ -152,50 +145,3 @@ class VqiItem(ChartItem):
             text = "VQI -"
 
         return text
-
-
-if __name__ == "__main__":
-    app = create_qapp()
-
-    symbol = "JP225"
-    exchange = Exchange.OTC
-    interval = Interval.MINUTE
-    start = datetime(2025, 1, 23, 22, 15, 0),
-    end   = datetime(2025, 1, 25, 22, 15, 0)
-
-    database = get_database()
-    bars = database.load_bar_data(
-        symbol=symbol,
-        exchange=exchange,
-        interval=interval,
-        start=start,
-        end=end
-    )
-
-    n = 1000
-    history = bars[:n]
-    new_data = bars[n:]
-
-    widget = ChartWidget()
-    widget.add_plot("candle", hide_x_axis=True)
-    widget.add_plot("volume", maximum_height=250)
-    widget.add_plot("vqi", maximum_height=150)
-
-    widget.add_item(CandleItem, "candle", "candle")
-    widget.add_item(VolumeItem, "volume", "volume")
-    widget.add_item(VqiItem, "vqi", "vqi")
-    widget.add_cursor()
-
-    # history = bars
-    widget.update_history(history)
-
-    def update_bar():
-        bar = new_data.pop(0)
-        widget.update_bar(bar)
-
-    timer = QtCore.QTimer()
-    timer.timeout.connect(update_bar)
-    # timer.start(100)
-
-    widget.show()
-    app.exec()
