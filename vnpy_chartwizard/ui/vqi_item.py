@@ -17,8 +17,9 @@ class VqiItem(ChartItem):
         """"""
         super().__init__(manager)
 
-        self.aqua_pen: QtGui.QPen = pg.mkPen(color=(0, 255, 255), width=1)
-        self.red_pen: QtGui.QPen  = pg.mkPen(color=(255, 0, 0), width=1)
+        self.aqua_pen: QtGui.QPen     = pg.mkPen(color=(0, 255, 255), width=1)
+        self.red_pen: QtGui.QPen      = pg.mkPen(color=(255, 0, 0), width=1)
+        self.fill_color: QtGui.QColor = pg.mkColor(0, 0, 0, 255)
 
         self.currency_point = 1
         self.vqi_ma_method  = 3 # 3 = MODE_LWMA
@@ -98,20 +99,23 @@ class VqiItem(ChartItem):
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
 
+        rgb = min(255, int(50 * abs(vqi_value)))
         if vqi_value > 0:
             painter.setPen(self.red_pen)
+            self.fill_color.setRgb(rgb, 0, 0)
         else:
             painter.setPen(self.aqua_pen)
+            self.fill_color.setRgb(0, rgb, rgb)
 
         # Draw VQI rectangle
-        painter.drawRect(
-            QtCore.QRectF(
-                ix - 0.4, # 0.4 = 0.8(width) / 2
-                50,       # 50% of y_range
-                0.8,      # width
-                20        # 20% of y_range
-            )
+        rect = QtCore.QRectF(
+            ix - 0.4, # 0.4 = 0.8(width) / 2
+            50,       # 50% of y_range
+            0.8,      # width
+            20        # 20% of y_range
         )
+        painter.fillRect(rect, self.fill_color)
+        painter.drawRect(rect)
 
         # Finish
         painter.end()
