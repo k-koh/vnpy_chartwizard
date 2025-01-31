@@ -88,8 +88,8 @@ class VqiItem(ChartItem):
             max_p = max(h - l, max(h - c2, c2 - l))
             if (max_p != 0 and (h - l) != 0):
                 VQ = abs(((c-c2)/max_p+(c-o)/(h-l))*0.5)*((c-c2+(c-o))*0.5)
-                self.vqi_data[base_ix+i] = self.vqi_data[base_ix+i-1] if abs(VQ) < self.vqi_filter * self.currency_point else VQ
-
+                # self.vqi_data[base_ix+i] = self.vqi_data[base_ix+i-1] if abs(VQ) < self.vqi_filter * self.currency_point else VQ
+                self.vqi_data[base_ix+i] = VQ
 
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
         """"""
@@ -100,7 +100,7 @@ class VqiItem(ChartItem):
         painter = QtGui.QPainter(picture)
 
         rgb = min(255, int(50 * abs(vqi_value)))
-        if vqi_value > 0:
+        if vqi_value > 0.0:
             painter.setPen(self.red_pen)
             self.fill_color.setRgb(rgb, 0, 0)
         else:
