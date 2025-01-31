@@ -55,8 +55,7 @@ class VqiItem(ChartItem):
             high_data = []
             low_data = []
             close_data = []
-            # -1 for update previous fixed bar
-            base_ix = ix - self.vqi_start - 1
+            base_ix = ix - self.vqi_start
             for n in range(base_ix, ix + 1):
                 bar = self._manager.get_bar(n)
                 open_data.append(bar.open_price)
