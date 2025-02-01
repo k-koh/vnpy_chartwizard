@@ -1,12 +1,11 @@
-from typing import Dict, Tuple, List
-import numpy as np
+from typing import Dict, Tuple
 import talib
 import pyqtgraph as pg
-
 from vnpy.chart.item import ChartItem
 from vnpy.trader.ui import QtCore, QtGui
 from vnpy.trader.object import BarData
 from vnpy.chart.manager import BarManager
+from vnpy.trader.utility import ArrayManager
 
 # Volatility Quality Index indicator
 
@@ -16,6 +15,7 @@ class VqiItem(ChartItem):
     def __init__(self, manager: BarManager):
         """"""
         super().__init__(manager)
+        self.am = ArrayManager()
 
         self.aqua_pen: QtGui.QPen     = pg.mkPen(color=(0, 255, 255), width=1)
         self.red_pen: QtGui.QPen      = pg.mkPen(color=(255, 0, 0), width=1)
@@ -27,68 +27,53 @@ class VqiItem(ChartItem):
         self.vqi_smoothing  = 2
         self.vqi_filter     = 1
         self.vqi_data: Dict[int, float] = {}
-        self.vqi_start      = self.vqi_smoothing + self.vqi_period + 3
+        self.pre_vqi        = 0.0
 
     def get_vqi_value(self, ix: int) -> float:
         """"""
-        # Return default value when no enough MA and smoothing data
-        if ix < self.vqi_start:
-            return 0
-
+        am = self.am
+        # Return default value when no enough ArrayManager data (size=100)
+        if ix < am.size-1:
+            return 0.0
         # When initialize, calculate all vqi value
         if not self.vqi_data:
-            base_ix = 0
             bars = self._manager.get_all_bars()
-            open_data  = [bar.open_price  for bar in bars]
-            high_data  = [bar.high_price  for bar in bars]
-            low_data   = [bar.low_price   for bar in bars]
-            close_data = [bar.close_price for bar in bars]
-            # initialize VQ with 0
-            self.vqi_data = {n: 0.0 for n in range(len(bars))}
-            self.caculate_vqi(open_data, high_data, low_data, close_data, base_ix)
-
+            for bar in bars:
+                am.update_bar(bar)
+                if not am.inited:
+                    continue
+                inx = self._manager.get_index(bar.datetime)
+                self.vqi_data[inx] = self.caculate_vqi()
+                self.pre_vqi = self.vqi_data[inx]
         # Calculate new value
-        # and Recalculate current bar
-        max_key = max(self.vqi_data.keys())
-        if ix not in self.vqi_data or ix == max_key:
-            open_data = []
-            high_data = []
-            low_data = []
-            close_data = []
-            base_ix = ix - self.vqi_start
-            for n in range(base_ix, ix + 1):
-                bar = self._manager.get_bar(n)
-                open_data.append(bar.open_price)
-                high_data.append(bar.high_price)
-                low_data.append(bar.low_price)
-                close_data.append(bar.close_price)
-            self.caculate_vqi(open_data, high_data, low_data, close_data, base_ix)
-
+        if ix not in self.vqi_data:
+            am.update_bar(self._manager.get_bar(ix))
+            if not am.inited:
+                return 0.0
+            self.vqi_data[ix] = self.caculate_vqi()
+            self.pre_vqi = self.vqi_data[ix]
         if ix in self.vqi_data:
             return self.vqi_data[ix]
 
-
-    def caculate_vqi(self, open_data: list, high_data: list, low_data: list, close_data: list, base_ix: int = 0):
+    def caculate_vqi(self) -> float:
         """"""
-        maO_array = talib.MA(np.array(open_data),  timeperiod=self.vqi_period, matype=self.vqi_ma_method)
-        maH_array = talib.MA(np.array(high_data),  timeperiod=self.vqi_period, matype=self.vqi_ma_method)
-        maL_array = talib.MA(np.array(low_data),   timeperiod=self.vqi_period, matype=self.vqi_ma_method)
-        maC_array = talib.MA(np.array(close_data), timeperiod=self.vqi_period, matype=self.vqi_ma_method)
-
-        count = len(maO_array)
-        # loop index [start, total - 1]
-        for i in range(self.vqi_start, count):
-            # calculate VQI
-            o = maO_array[i]
-            h = maH_array[i]
-            l = maL_array[i]
-            c = maC_array[i]
-            c2 = maC_array[i - self.vqi_smoothing]
-            max_p = max(h - l, max(h - c2, c2 - l))
-            if (max_p != 0 and (h - l) != 0):
-                VQ = abs(((c-c2)/max_p+(c-o)/(h-l))*0.5)*((c-c2+(c-o))*0.5)
-                # self.vqi_data[base_ix+i] = self.vqi_data[base_ix+i-1] if abs(VQ) < self.vqi_filter * self.currency_point else VQ
-                self.vqi_data[base_ix+i] = VQ
+        maO_array = talib.MA(self.am.open,  timeperiod=self.vqi_period, matype=self.vqi_ma_method)
+        maH_array = talib.MA(self.am.high,  timeperiod=self.vqi_period, matype=self.vqi_ma_method)
+        maL_array = talib.MA(self.am.low,   timeperiod=self.vqi_period, matype=self.vqi_ma_method)
+        maC_array = talib.MA(self.am.close, timeperiod=self.vqi_period, matype=self.vqi_ma_method)
+        # calculate VQI
+        o = maO_array[-1]
+        h = maH_array[-1]
+        l = maL_array[-1]
+        c = maC_array[-1]
+        c2 = maC_array[-1-self.vqi_smoothing]
+        max_p = max(h - l, max(h - c2, c2 - l))
+        if (max_p != 0 and (h - l) != 0):
+            VQ = abs(((c - c2) / max_p + (c - o) / (h - l)) * 0.5) * ((c - c2 + (c - o)) * 0.5)
+            vqi = self.pre_vqi if abs(VQ) < self.vqi_filter * self.currency_point else VQ
+            return vqi
+        else:
+            return 0.0
 
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
         """"""
@@ -142,7 +127,7 @@ class VqiItem(ChartItem):
         """"""
         if ix in self.vqi_data:
             rsi_value = self.vqi_data[ix]
-            text = f"VQI {rsi_value:.1f}"
+            text = f"VQI {rsi_value:.5f}"
             # print(text)
         else:
             text = "VQI -"
