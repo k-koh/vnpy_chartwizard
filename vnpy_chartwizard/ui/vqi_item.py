@@ -42,12 +42,14 @@ class VqiItem(ChartItem):
                 am.update_bar(bar)
                 if not am.inited:
                     continue
-                inx = self._manager.get_index(bar.datetime)
-                self.vqi_data[inx] = self.caculate_vqi()
-                self.pre_vqi = self.vqi_data[inx]
-        # Calculate new value
-        if ix not in self.vqi_data:
-            am.update_bar(self._manager.get_bar(ix))
+                idx = self._manager.get_index(bar.datetime)
+                self.vqi_data[idx] = self.caculate_vqi()
+                self.pre_vqi = self.vqi_data[idx]
+        # add a new bar or update the last bar
+        new_bar = True if ix not in self.vqi_data else False
+        update = True if ix == max(self.vqi_data.keys()) else False
+        if new_bar or update:
+            am.update_bar(self._manager.get_bar(ix), new_bar)
             if not am.inited:
                 return 0.0
             self.vqi_data[ix] = self.caculate_vqi()
