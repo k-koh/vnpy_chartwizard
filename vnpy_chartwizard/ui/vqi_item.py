@@ -135,3 +135,12 @@ class VqiItem(ChartItem):
             text = "VQI -"
 
         return text
+
+    def clear_all(self) -> None:
+        """
+        Clear all data in the item.
+        """
+        self.am = ArrayManager()
+        self.vqi_data.clear()
+        self.pre_vqi = 0.0
+        super().clear_all()

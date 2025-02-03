@@ -79,3 +79,10 @@ class SmaItem(CandleItem):
             text = "SMA -"
 
         return text
+
+    def clear_all(self) -> None:
+        """
+        Clear all data in the item.
+        """
+        self.sma_data.clear()
+        super().clear_all()
