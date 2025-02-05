@@ -25,7 +25,7 @@ class VqiItem(ChartItem):
         self.vqi_ma_method  = 3 # 3 = MODE_LWMA
         self.vqi_period     = 5
         self.vqi_smoothing  = 2
-        self.vqi_filter     = 1
+        self.vqi_filter     = 2
         self.vqi_data: Dict[int, float] = {}
         self.pre_vqi        = 0.0
 
