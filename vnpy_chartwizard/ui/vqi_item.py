@@ -27,7 +27,6 @@ class VqiItem(ChartItem):
         self.vqi_smoothing  = 2
         self.vqi_filter     = 2
         self.vqi_data: Dict[int, float] = {}
-        self.pre_vqi        = 0.0
 
     def get_vqi_value(self, ix: int) -> float:
         """"""
@@ -43,21 +42,22 @@ class VqiItem(ChartItem):
                 if not am.inited:
                     continue
                 idx = self._manager.get_index(bar.datetime)
-                self.vqi_data[idx] = self.caculate_vqi()
-                self.pre_vqi = self.vqi_data[idx]
+                pre_vqi = self.vqi_data.get(idx - 1, 0.0)
+                self.vqi_data[idx] = self.caculate_vqi(pre_vqi)
         # add a new bar or update the last bar
         new_bar = True if ix not in self.vqi_data else False
         update = True if ix == max(self.vqi_data.keys()) else False
         if new_bar or update:
+            bar = self._manager.get_bar(ix)
             am.update_bar(self._manager.get_bar(ix), new_bar)
             if not am.inited:
                 return 0.0
-            self.vqi_data[ix] = self.caculate_vqi()
-            self.pre_vqi = self.vqi_data[ix]
+            pre_vqi = self.vqi_data.get(ix - 1, 0.0)
+            self.vqi_data[ix] = self.caculate_vqi(pre_vqi)
         if ix in self.vqi_data:
             return self.vqi_data[ix]
 
-    def caculate_vqi(self) -> float:
+    def caculate_vqi(self, pre_vqi: float) -> float:
         """"""
         maO_array = talib.MA(self.am.open,  timeperiod=self.vqi_period, matype=self.vqi_ma_method)
         maH_array = talib.MA(self.am.high,  timeperiod=self.vqi_period, matype=self.vqi_ma_method)
@@ -72,7 +72,8 @@ class VqiItem(ChartItem):
         max_p = max(h - l, max(h - c2, c2 - l))
         if (max_p != 0 and (h - l) != 0):
             VQ = abs(((c - c2) / max_p + (c - o) / (h - l)) * 0.5) * ((c - c2 + (c - o)) * 0.5)
-            vqi = self.pre_vqi if abs(VQ) < self.vqi_filter * self.currency_point else VQ
+            # vqi = pre_vqi if abs(VQ) < self.vqi_filter * self.currency_point else VQ
+            vqi = VQ
             return vqi
         else:
             return 0.0
@@ -142,5 +143,4 @@ class VqiItem(ChartItem):
         """
         self.am = ArrayManager()
         self.vqi_data.clear()
-        self.pre_vqi = 0.0
         super().clear_all()

@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from tzlocal import get_localzone_name
 
+from vnpy.trader.constant import PriceType, CandleColor
 from vnpy.event import EventEngine, Event
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
 from vnpy.trader.engine import MainEngine
@@ -36,7 +37,9 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.bgs: Dict[str, BarGenerator] = {}
         self.charts: Dict[str, ChartWidget] = {}
+        self.bar_window = 5
 
+        self.history_inited = False
         self.init_ui()
         self.register_event()
 
@@ -70,14 +73,25 @@ class ChartWizardWidget(QtWidgets.QWidget):
         """创建图表对象"""
         chart: ChartWidget = ChartWidget()
         chart.add_plot("candle", hide_x_axis=True)
-        chart.add_plot("volume", maximum_height=200)
-        chart.add_plot("rsi", maximum_height=150)
+        chart.add_plot("volume", maximum_height=150)
+        # chart.add_plot("rsi", maximum_height=150)
         chart.add_plot("vqi", maximum_height=150)
 
         chart.add_item(CandleItem, "candle", "candle")
         chart.add_item(VolumeItem, "volume", "volume")
-        chart.add_item(SmaItem, "sma", "candle")
-        chart.add_item(RsiItem, "rsi", "rsi")
+        chart.add_item(SmaItem, "sma5", "candle")
+        chart._items["sma5"].sma_window = 3
+        chart._items["sma5"].price_type = PriceType.CLOSE
+        chart._items["sma5"].candle_color = CandleColor.MAGENTA
+        chart.add_item(SmaItem, "sma5_open", "candle")
+        chart._items["sma5_open"].sma_window = 3
+        chart._items["sma5_open"].price_type = PriceType.OPEN
+        chart._items["sma5_open"].candle_color = CandleColor.ORANGE
+        chart.add_item(SmaItem, "sma20", "candle")
+        chart._items["sma20"].sma_window = 20
+        chart._items["sma20"].price_type = PriceType.CLOSE
+        chart._items["sma20"].candle_color = CandleColor.YELLOW
+        # chart.add_item(RsiItem, "rsi", "rsi")
         chart.add_item(VqiItem, "vqi", "vqi")
         chart.add_cursor()
         return chart
@@ -110,7 +124,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
                 return
 
         # Create new chart
-        self.bgs[vt_symbol] = BarGenerator(self.on_bar)
+        self.bgs[vt_symbol] = BarGenerator(self.on_bar, self.bar_window, self.on_5min_bar)
 
         chart: ChartWidget = self.create_chart()
         self.charts[vt_symbol] = chart
@@ -123,7 +137,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.chart_engine.query_history(
             vt_symbol,
-            Interval.MINUTE,
+            Interval.MINUTE5,
             start,
             end
         )
@@ -143,11 +157,18 @@ class ChartWizardWidget(QtWidgets.QWidget):
         tick: TickData = event.data
         bg: Optional[BarGenerator] = self.bgs.get(tick.vt_symbol, None)
 
-        if bg:
+        if bg and self.history_inited:
             bg.update_tick(tick)
 
             chart: ChartWidget = self.charts[tick.vt_symbol]
-            bar: BarData = copy(bg.bar)
+            bar: BarData = None
+            if self.bar_window > 0:
+                # Update 1 minute bar into x minute window
+                bar = copy(bg.bar)
+                bg.update_bar(bar)
+                bar = copy(bg.window_bar)
+            else:
+                bar = copy(bg.bar)
             bar.datetime = bar.datetime.replace(second=0, microsecond=0)
             chart.update_bar(bar)
 
@@ -160,6 +181,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
         bar: BarData = history[0]
         chart: ChartWidget = self.charts[bar.vt_symbol]
         chart.update_history(history)
+
+        # update last bar into x minute window
+        bar = history[-1]
+        bg: Optional[BarGenerator] = self.bgs.get(bar.vt_symbol, None)
+        if bg:
+            bg.update_bar(bar)
+        self.history_inited = True
 
         # Subscribe following data update
         contract: Optional[ContractData] = self.main_engine.get_contract(bar.vt_symbol)
@@ -195,7 +223,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
             bar.datetime = bar.datetime.replace(second=0, microsecond=0)
             chart.update_bar(bar)
 
-    def on_bar(self, bar: BarData) -> None:
+    def on_bar(self, bar: BarData, new_minute: bool = True) -> None:
         """K线合成回调"""
-        chart: ChartWidget = self.charts[bar.vt_symbol]
-        chart.update_bar(bar)
+        # chart: ChartWidget = self.charts[bar.vt_symbol]
+        # chart.update_bar(bar)
+        # self.bg.update_bar(bar)
+
+    def on_5min_bar(self, bar: BarData):
+        """"""
+        # chart: ChartWidget = self.charts[bar.vt_symbol]
+        # chart.update_bar(bar)
