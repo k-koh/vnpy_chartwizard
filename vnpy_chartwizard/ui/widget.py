@@ -52,7 +52,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.setTabsClosable(True)
         self.tab.tabCloseRequested.connect(self.close_tab)
 
-        self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("160030023.JPX")
+        self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("160060023.JPX")
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新建图表")
         self.button.clicked.connect(self.new_chart)
