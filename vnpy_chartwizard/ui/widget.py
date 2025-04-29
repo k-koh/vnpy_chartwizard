@@ -37,7 +37,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.bgs: Dict[str, BarGenerator] = {}
         self.charts: Dict[str, ChartWidget] = {}
-        self.bar_window = 5
+        self.bar_window = 5 # need to change for other timeframes(5m, 15m, 1h, 1d)
 
         self.history_inited = False
         self.init_ui()
@@ -74,19 +74,14 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart: ChartWidget = ChartWidget()
         chart.add_plot("candle", hide_x_axis=True)
         chart.add_plot("volume", maximum_height=150)
-        # chart.add_plot("rsi", maximum_height=150)
         chart.add_plot("vqi", maximum_height=150)
 
         chart.add_item(CandleItem, "candle", "candle")
         chart.add_item(VolumeItem, "volume", "volume")
-        chart.add_item(SmaItem, "sma5", "candle")
-        chart._items["sma5"].sma_window = 3
-        chart._items["sma5"].price_type = PriceType.CLOSE
-        chart._items["sma5"].candle_color = CandleColor.MAGENTA
-        chart.add_item(SmaItem, "sma5_open", "candle")
-        chart._items["sma5_open"].sma_window = 3
-        chart._items["sma5_open"].price_type = PriceType.OPEN
-        chart._items["sma5_open"].candle_color = CandleColor.ORANGE
+        chart.add_item(SmaItem, "sma3", "candle")
+        chart._items["sma3"].sma_window = 3
+        chart._items["sma3"].price_type = PriceType.CLOSE
+        chart._items["sma3"].candle_color = CandleColor.MAGENTA
         chart.add_item(SmaItem, "sma20", "candle")
         chart._items["sma20"].sma_window = 20
         chart._items["sma20"].price_type = PriceType.CLOSE
@@ -124,7 +119,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
                 return
 
         # Create new chart
-        self.bgs[vt_symbol] = BarGenerator(self.on_bar, self.bar_window, self.on_5min_bar)
+        self.bgs[vt_symbol] = BarGenerator(self.on_bar, self.bar_window, self.on_10min_bar)
 
         chart: ChartWidget = self.create_chart()
         self.charts[vt_symbol] = chart
@@ -229,7 +224,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         # chart.update_bar(bar)
         # self.bg.update_bar(bar)
 
-    def on_5min_bar(self, bar: BarData):
+    def on_10min_bar(self, bar: BarData):
         """"""
         # chart: ChartWidget = self.charts[bar.vt_symbol]
         # chart.update_bar(bar)

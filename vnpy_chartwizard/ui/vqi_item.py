@@ -23,7 +23,7 @@ class VqiItem(ChartItem):
 
         self.currency_point = 1
         self.vqi_ma_method  = 3 # 3 = MODE_LWMA
-        self.vqi_period     = 5
+        self.vqi_period     = 5 # no need to change for other timeframes(5m, 15m, 1h, 1d)
         self.vqi_smoothing  = 2
         self.vqi_filter     = 2
         self.vqi_data: Dict[int, float] = {}
