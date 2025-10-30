@@ -28,13 +28,23 @@ from vnpy.trader.app import BaseApp
 from .engine import ChartWizardEngine, APP_NAME
 
 
+__all__ = [
+    "ChartWizardApp",
+    "ChartWizardEngine",
+    "APP_NAME"
+]
+
+
+__version__ = "1.1.0"
+
+
 class ChartWizardApp(BaseApp):
     """"""
-    
+
     app_name: str = APP_NAME
     app_module: str = __module__
     app_path: Path = Path(__file__).parent
     display_name: str = "K线图表"
-    engine_class: ChartWizardEngine = ChartWizardEngine
+    engine_class: type[ChartWizardEngine] = ChartWizardEngine
     widget_name: str = "ChartWizardWidget"
     icon_name: str = str(app_path.joinpath("ui", "cw.ico"))

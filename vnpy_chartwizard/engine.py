@@ -1,6 +1,5 @@
 from datetime import datetime
 from threading import Thread
-from typing import List, Optional
 
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
@@ -60,14 +59,14 @@ class ChartWizardEngine(BaseEngine):
             end=end
         )
 
-        contract: Optional[ContractData] = self.main_engine.get_contract(vt_symbol)
+        contract: ContractData | None = self.main_engine.get_contract(vt_symbol)
         if contract:
             if contract.history_data:
-                data: Optional[List[BarData]] = self.main_engine.query_history(req, contract.gateway_name)
+                data: list[BarData] | None = self.main_engine.query_history(req, contract.gateway_name)
             else:
-                data: Optional[List[BarData]] = self.datafeed.query_bar_history(req)
+                data = self.datafeed.query_bar_history(req)
         else:
-            data: List[BarData] = self.database.load_bar_data(
+            data = self.database.load_bar_data(
                 symbol,
                 exchange,
                 interval,
