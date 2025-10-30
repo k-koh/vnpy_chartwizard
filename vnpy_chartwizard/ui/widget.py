@@ -1,5 +1,4 @@
 from copy import copy
-from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from tzlocal import get_localzone_name
 
@@ -34,8 +33,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.event_engine: EventEngine = event_engine
         self.chart_engine: ChartWizardEngine = main_engine.get_engine(APP_NAME)
 
-        self.bgs: Dict[str, BarGenerator] = {}
-        self.charts: Dict[str, ChartWidget] = {}
+        self.bgs: dict[str, BarGenerator] = {}
+        self.charts: dict[str, ChartWidget] = {}
 
         self.init_ui()
         self.register_event()
@@ -105,7 +104,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
             return
 
         if "LOCAL" not in vt_symbol:
-            contract: Optional[ContractData] = self.main_engine.get_contract(vt_symbol)
+            contract: ContractData | None = self.main_engine.get_contract(vt_symbol)
             if not contract:
                 return
 
@@ -141,7 +140,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
     def process_tick_event(self, event: Event) -> None:
         """处理Tick事件"""
         tick: TickData = event.data
-        bg: Optional[BarGenerator] = self.bgs.get(tick.vt_symbol, None)
+        bg: BarGenerator | None = self.bgs.get(tick.vt_symbol, None)
 
         if bg:
             bg.update_tick(tick)
@@ -153,7 +152,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
     def process_history_event(self, event: Event) -> None:
         """处理历史事件"""
-        history: List[BarData] = event.data
+        history: list[BarData] = event.data
         if not history:
             return
 
@@ -162,7 +161,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart.update_history(history)
 
         # Subscribe following data update
-        contract: Optional[ContractData] = self.main_engine.get_contract(bar.vt_symbol)
+        contract: ContractData | None = self.main_engine.get_contract(bar.vt_symbol)
         if contract:
             req: SubscribeRequest = SubscribeRequest(
                 contract.symbol,
@@ -186,7 +185,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
             gateway_name="SPREAD"
         )
 
-        bg: Optional[BarGenerator] = self.bgs.get(tick.vt_symbol, None)
+        bg: BarGenerator | None = self.bgs.get(tick.vt_symbol, None)
         if bg:
             bg.update_tick(tick)
 
