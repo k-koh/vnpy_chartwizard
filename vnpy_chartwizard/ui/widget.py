@@ -2,7 +2,9 @@ from copy import copy
 from datetime import datetime, timedelta
 from tzlocal import get_localzone_name
 
-from vnpy.trader.constant import PriceType, CandleColor
+import pyqtgraph as pg
+
+from vnpy.trader.constant import PriceType, CandleColor, OptionType
 from vnpy.event import EventEngine, Event
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
 from vnpy.trader.engine import MainEngine
@@ -16,7 +18,16 @@ from vnpy_spreadtrading.base import SpreadItem, EVENT_SPREAD_DATA
 from .rsi_item import RsiItem
 from .sma_item import SmaItem
 from .vqi_item import VqiItem
+from .impv_item import ImpvItem
 from ..engine import APP_NAME, EVENT_CHART_HISTORY, ChartWizardEngine
+
+class CustomChartWidget(ChartWidget):
+    """
+    Custom ChartWidget that holds a reference to main_engine.
+    """
+    def __init__(self, main_engine: MainEngine) -> None:
+        super().__init__()
+        self._manager.main_engine = main_engine
 
 
 class ChartWizardWidget(QtWidgets.QWidget):
@@ -51,7 +62,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.setTabsClosable(True)
         self.tab.tabCloseRequested.connect(self.close_tab)
 
-        self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("nk-2506.JPX")
+        self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("nk-2512.JPX")
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新建图表")
         self.button.clicked.connect(self.new_chart)
@@ -70,23 +81,37 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
     def create_chart(self) -> ChartWidget:
         """创建图表对象"""
-        chart: ChartWidget = ChartWidget()
+        chart: ChartWidget = CustomChartWidget(self.main_engine)
         chart.add_plot("candle", hide_x_axis=True)
         chart.add_plot("volume", maximum_height=150)
-        chart.add_plot("vqi", maximum_height=150)
 
         chart.add_item(CandleItem, "candle", "candle")
         chart.add_item(VolumeItem, "volume", "volume")
-        chart.add_item(SmaItem, "sma3", "candle")
-        chart._items["sma3"].sma_window = 3
-        chart._items["sma3"].price_type = PriceType.CLOSE
-        chart._items["sma3"].candle_color = CandleColor.MAGENTA
-        chart.add_item(SmaItem, "sma20", "candle")
-        chart._items["sma20"].sma_window = 20
-        chart._items["sma20"].price_type = PriceType.CLOSE
-        chart._items["sma20"].candle_color = CandleColor.YELLOW
-        # chart.add_item(RsiItem, "rsi", "rsi")
-        chart.add_item(VqiItem, "vqi", "vqi")
+
+        plot = chart.get_plot("candle")
+        eris_view = pg.ViewBox()
+        plot.scene().addItem(eris_view)
+        eris_view.setBackgroundColor('transparent') # Make transparent
+        eris_view.setZValue(10) # Draw on top
+
+        plot.showAxis("left")
+        axis_vi = plot.getAxis('left')
+        axis_vi.setLabel('Implied Volatility', color='b')
+        axis_vi.linkToView(eris_view)
+        eris_view.setXLink(plot)
+
+        def update_views(*args, **kwargs):
+            eris_view.setGeometry(plot.getViewBox().sceneBoundingRect())
+            eris_view.linkedViewChanged(plot.getViewBox(), eris_view.XAxis)
+
+        plot.getViewBox().sigResized.connect(update_views)
+
+        for item_name in ["eris_p", "eris_c"]:
+            item = ImpvItem(chart._manager)
+            chart._items[item_name] = item
+            eris_view.addItem(item)
+        chart._items["eris_p"].option_type = OptionType.PUT
+        chart._items["eris_c"].option_type = OptionType.CALL
         chart.add_cursor()
         return chart
 
