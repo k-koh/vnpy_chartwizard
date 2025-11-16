@@ -16,15 +16,25 @@ class ImpvItem(ChartItem):
         """"""
         super().__init__(manager)
 
-        self.yellow_pen: QtGui.QPen = pg.mkPen(color=(255, 255, 0), width=2)
-        self.magenta_pen: QtGui.QPen = pg.mkPen(color=(255, 0, 255), width=2)
+        self.bid_pen: QtGui.QPen = pg.mkPen(color=(255, 174, 201), width=2)
+        self.ask_pen: QtGui.QPen = pg.mkPen(color=(160, 255, 160), width=2)
 
         self.option_type = OptionType.CALL
         self.candle_color = CandleColor.YELLOW
-        self.impv_data: Dict[int, float] = {}
+        self.iv_data: Dict[int, float] = {}
         self._main_engine: MainEngine = manager.main_engine
 
-        self.init_impv = None
+        self.base_iv = None
+
+    def get_base_iv(self) -> float | None:
+        base_iv = None
+        base_bar = self._manager.get_current_session_base_bar()
+        if base_bar is not None:
+            if self.option_type == OptionType.CALL:
+                base_iv = base_bar.eris_c_iv
+            else:
+                base_iv = base_bar.eris_p_iv
+        return base_iv
 
     def get_impv_value(self, ix: int) -> float:
         """"""
@@ -32,56 +42,37 @@ class ImpvItem(ChartItem):
             return 0
 
         # When initialize, calculate all rsi value
-        if not self.impv_data:
+        if not self.iv_data:
+            self.base_iv = self.get_base_iv()
             bars = self._manager.get_all_bars()
+            for n, bar in enumerate(bars):
+                if self.option_type == OptionType.CALL:
+                    iv = bar.eris_c_iv
+                else:
+                    iv = bar.eris_p_iv
+                if self.base_iv is None and iv is not None:
+                    self.base_iv = iv
+                self.iv_data[n] = (iv - self.base_iv) * 100.0 if iv is not None else 0
 
-        new_bar = True if ix not in self.impv_data else False
+        new_bar = True if ix not in self.iv_data else False
         update = False
-        if self.impv_data:
-            update = True if ix == max(self.impv_data.keys()) else False
+        if self.iv_data:
+            update = True if ix == max(self.iv_data.keys()) else False
 
         if new_bar or update:
             # Else calculate new value
-            impv_value = 0
-            gateway = self._main_engine.get_gateway("KBS")
-            if gateway:
-                option_engine = self._main_engine.get_engine("OptionMaster")
-                if option_engine:
-                    if self.option_type == OptionType.CALL:
-                        eris_match = gateway.rest_api.eris_call_match
-                    else:
-                        eris_match = gateway.rest_api.eris_put_match
-                    
-                    kabus_symbol = eris_match.get('symbol')
-                    if kabus_symbol:
-                        option_data = option_engine.get_option_data_by_kabus_symbol(kabus_symbol)
-                        if option_data and option_data.mid_impv:
-                            impv_value = option_data.mid_impv
-                        else:
-                            # Fallback to impv from Kabus API if OptionMaster data is not available
-                            impv_value = eris_match.get('impv', 0)
-                else:
-                    # Fallback to impv from Kabus API if OptionMaster engine is not available
-                    if self.option_type == OptionType.CALL:
-                        eris_match = gateway.rest_api.eris_call_match
-                    else:
-                        eris_match = gateway.rest_api.eris_put_match
-                    impv_value = eris_match.get('impv', 0)
+            bar = self._manager.get_bar(ix)
+            if self.option_type == OptionType.CALL:
+                iv = bar.eris_c_iv
             else:
-                # Fallback to 0 if gateway is not available
-                impv_value = 0
-            
-            if impv_value is None: # Ensure it's a float
-                impv_value = 0
-
-            if self.init_impv is None:
-                self.init_impv = impv_value
-
-            self.impv_data[ix] = (impv_value - self.init_impv) * 100.0
+                iv = bar.eris_p_iv
+            if self.base_iv is None and iv is not None:
+                self.base_iv = iv
+            self.iv_data[ix] = (iv - self.base_iv) * 100.0 if iv is not None else 0
 
         # Return if already calcualted
-        if ix in self.impv_data:
-            return self.impv_data[ix]
+        if ix in self.iv_data:
+            return self.iv_data[ix]
 
         return 0
 
@@ -96,9 +87,9 @@ class ImpvItem(ChartItem):
 
         # Set painter color
         if self.option_type == OptionType.CALL:
-            painter.setPen(self.magenta_pen)
+            painter.setPen(self.bid_pen)
         else:
-            painter.setPen(self.yellow_pen)
+            painter.setPen(self.ask_pen)
 
         # Draw Line
         start_point = QtCore.QPointF(ix-1, last_impv_value)
@@ -114,20 +105,20 @@ class ImpvItem(ChartItem):
         # min_price, max_price = self._manager.get_price_range()
         rect = QtCore.QRectF(
             0,
-            -3.0,
+            -2.0,
             len(self._bar_picutures),
-            6.0
+            4.0
         )
         return rect
 
     def get_y_range( self, min_ix: int = None, max_ix: int = None) -> Tuple[float, float]:
         """  """
-        return -3.0, 3.0
+        return -2.0, 2.0
 
     def get_info_text(self, ix: int) -> str:
         """"""
-        if ix in self.impv_data:
-            impv_value = self.impv_data[ix]
+        if ix in self.iv_data:
+            impv_value = self.iv_data[ix]
             text = f"Impv {impv_value:.4f}%"
         else:
             text = "Impv -"
@@ -138,5 +129,5 @@ class ImpvItem(ChartItem):
         """
         Clear all data in the item.
         """
-        self.impv_data.clear()
+        self.iv_data.clear()
         super().clear_all()
