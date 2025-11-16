@@ -145,6 +145,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         # Create new chart
         self.bgs[vt_symbol] = BarGenerator(self.on_bar, self.bar_window, self.on_10min_bar)
+        self.bgs[vt_symbol].main_engine = self.main_engine
 
         chart: ChartWidget = self.create_chart()
         self.charts[vt_symbol] = chart
