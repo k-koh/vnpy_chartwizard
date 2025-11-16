@@ -47,7 +47,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.bgs: dict[str, BarGenerator] = {}
         self.charts: dict[str, ChartWidget] = {}
-        self.bar_window = 5 # need to change for other timeframes(5m, 15m, 1h, 1d)
+        # set bar window size same with query_history()
+        self.bar_window = 1 # need to change for other timeframes(5m, 15m, 1h, 1d)
 
         self.history_inited = False
         self.init_ui()
@@ -156,7 +157,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.chart_engine.query_history(
             vt_symbol,
-            Interval.MINUTE5,
+            Interval.MINUTE,
             start,
             end
         )
