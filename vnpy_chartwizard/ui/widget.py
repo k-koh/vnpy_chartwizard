@@ -18,7 +18,7 @@ from vnpy_spreadtrading.base import SpreadItem, EVENT_SPREAD_DATA
 from .rsi_item import RsiItem
 from .sma_item import SmaItem
 from .vqi_item import VqiItem
-from .impv_item import ImpvItem
+from .iv_item import IvItem
 from ..engine import APP_NAME, EVENT_CHART_HISTORY, ChartWizardEngine
 
 class CustomChartWidget(ChartWidget):
@@ -84,35 +84,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
         """创建图表对象"""
         chart: ChartWidget = CustomChartWidget(self.main_engine)
         chart.add_plot("candle", hide_x_axis=True)
+        chart.add_plot("iv", maximum_height=400, hide_x_axis=True)
         chart.add_plot("volume", maximum_height=200)
 
         chart.add_item(CandleItem, "candle", "candle")
+        chart.add_item(IvItem, "iv", "iv")
         chart.add_item(VolumeItem, "volume", "volume")
 
-        plot = chart.get_plot("candle")
-        eris_view = pg.ViewBox()
-        plot.scene().addItem(eris_view)
-        eris_view.setBackgroundColor('transparent') # Make transparent
-        eris_view.setZValue(10) # Draw on top
-
-        plot.showAxis("left")
-        axis_vi = plot.getAxis('left')
-        axis_vi.setLabel('Implied Volatility', color='b')
-        axis_vi.linkToView(eris_view)
-        eris_view.setXLink(plot)
-
-        def update_views(*args, **kwargs):
-            eris_view.setGeometry(plot.getViewBox().sceneBoundingRect())
-            eris_view.linkedViewChanged(plot.getViewBox(), eris_view.XAxis)
-
-        plot.getViewBox().sigResized.connect(update_views)
-
-        for item_name in ["eris_p", "eris_c"]:
-            item = ImpvItem(chart._manager)
-            chart._items[item_name] = item
-            eris_view.addItem(item)
-        chart._items["eris_p"].option_type = OptionType.PUT
-        chart._items["eris_c"].option_type = OptionType.CALL
         chart.add_cursor()
         return chart
 
