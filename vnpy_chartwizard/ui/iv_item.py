@@ -11,6 +11,8 @@ from vnpy.chart.manager import BarManager
 
 BID_COLOR = (255, 174, 201)
 ASK_COLOR = (160, 255, 160)
+# ATM_COLOR use yellow
+ATM_COLOR = (255, 255, 0)
 
 class IvItem(ChartItem):
     """"""
@@ -21,8 +23,10 @@ class IvItem(ChartItem):
 
         self.bid_pen: QtGui.QPen = pg.mkPen(color=BID_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=ASK_COLOR, width=PEN_WIDTH)
+        self.atm_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=BID_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=ASK_COLOR)
+        self.atm_brush: QtGui.QBrush = pg.mkBrush(color=ATM_COLOR)
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
@@ -42,6 +46,8 @@ class IvItem(ChartItem):
         if base_bar is not None:
             self.base_eris_p_iv = base_bar.eris_p_iv
             self.base_eris_c_iv = base_bar.eris_c_iv
+            self.base_atm_iv = base_bar.atm_iv
+            self.base_n225_vi = base_bar.n225_vi
 
 
     def get_impv_values(self, ix: int) -> tuple[float, float, float, float]:
@@ -64,6 +70,11 @@ class IvItem(ChartItem):
                     self.base_eris_c_iv = iv
                 self.eris_c_iv[n] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None else 0
 
+                iv = bar.atm_iv
+                if self.base_atm_iv is None and iv is not None:
+                    self.base_atm_iv = iv
+                self.atm_iv[n] = (iv - self.base_atm_iv) * 100.0 if iv is not None else 0
+
         new_bar = True if ix not in self.eris_p_iv else False
         update = False
         if self.eris_p_iv:
@@ -82,9 +93,14 @@ class IvItem(ChartItem):
                 self.base_eris_c_iv = iv
             self.eris_c_iv[ix] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None else 0
 
+            iv = bar.atm_iv
+            if self.base_atm_iv is None and iv is not None:
+                self.base_atm_iv = iv
+            self.atm_iv[ix] = (iv - self.base_atm_iv) * 100.0 if iv is not None else 0
+
         # Return if already calcualted
         if ix in self.eris_p_iv:
-            return self.eris_p_iv[ix], self.eris_c_iv[ix], 0.0, 0.0
+            return self.eris_p_iv[ix], self.eris_c_iv[ix], self.atm_iv[ix], 0.0
 
         return 0.0, 0.0, 0.0, 0.0
 
@@ -183,8 +199,12 @@ class IvItem(ChartItem):
         c_iv_min = min(c_iv_values)
         c_iv_max = max(c_iv_values)
 
-        min_iv = min(p_iv_min, c_iv_min)
-        max_iv = max(p_iv_max, c_iv_max)
+        atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1]
+        atm_iv_min = min(atm_iv_values)
+        atm_iv_max = max(atm_iv_values)
+
+        min_iv = min(p_iv_min, c_iv_min, atm_iv_min)
+        max_iv = max(p_iv_max, c_iv_max, atm_iv_max)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
@@ -192,9 +212,10 @@ class IvItem(ChartItem):
     def get_info_text(self, ix: int) -> str:
         """"""
         if ix in self.eris_p_iv:
+            a_iv = self.atm_iv[ix]
             p_iv = self.eris_p_iv[ix]
             c_iv = self.eris_c_iv[ix]
-            text = f"PIV {p_iv:.2f}% CIV {c_iv:.2f}%"
+            text = f"IV ATM {a_iv:.2f}% OTM-P {p_iv:.2f}% OTM-C {c_iv:.2f}%"
         else:
             text = "IV -"
 
@@ -206,5 +227,6 @@ class IvItem(ChartItem):
         """
         self.eris_p_iv.clear()
         self.eris_c_iv.clear()
+        self.atm_iv.clear()
         self.iv_ranges.clear()
         super().clear_all()
