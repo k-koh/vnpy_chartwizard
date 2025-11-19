@@ -1,5 +1,6 @@
 from itertools import count
 from typing import Dict, Tuple
+from dataclasses import dataclass
 import pyqtgraph as pg
 
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int
@@ -13,6 +14,16 @@ BID_COLOR = (255, 174, 201)
 ASK_COLOR = (160, 255, 160)
 # ATM_COLOR use yellow
 ATM_COLOR = (255, 255, 0)
+# ATM_DAILY_COLOR use red
+ATM_DAILY_COLOR = (255, 0, 0)
+
+
+@dataclass
+class IvDrawItem:
+    value: float
+    pen: QtGui.QPen
+    brush: QtGui.QBrush
+
 
 class IvItem(ChartItem):
     """"""
@@ -24,6 +35,7 @@ class IvItem(ChartItem):
         self.bid_pen: QtGui.QPen = pg.mkPen(color=BID_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=ASK_COLOR, width=PEN_WIDTH)
         self.atm_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
+        self.atm_daily_pen: QtGui.QPen = pg.mkPen(color=ATM_DAILY_COLOR, width=PEN_WIDTH)
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=BID_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=ASK_COLOR)
         self.atm_brush: QtGui.QBrush = pg.mkBrush(color=ATM_COLOR)
@@ -35,6 +47,8 @@ class IvItem(ChartItem):
         self.eris_c_iv: Dict[int, float] = {}
         self.atm_iv: Dict[int, float] = {}
         self.n225_vi: Dict[int, float] = {}
+        # atm_iv 年率から日率に変換
+        self.atm_iv_daily: Dict[int, float] = {}
 
         self.base_eris_p_iv = None
         self.base_eris_c_iv = None
@@ -74,6 +88,8 @@ class IvItem(ChartItem):
                 if self.base_atm_iv is None and iv is not None:
                     self.base_atm_iv = iv
                 self.atm_iv[n] = (iv - self.base_atm_iv) * 100.0 if iv is not None else 0
+                # atm_iv 年率から日率に変換
+                self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None else 0
 
         new_bar = True if ix not in self.eris_p_iv else False
         update = False
@@ -97,59 +113,68 @@ class IvItem(ChartItem):
             if self.base_atm_iv is None and iv is not None:
                 self.base_atm_iv = iv
             self.atm_iv[ix] = (iv - self.base_atm_iv) * 100.0 if iv is not None else 0
+            # atm_iv 年率から日率に変換
+            self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None else 0
 
         # Return if already calcualted
         if ix in self.eris_p_iv:
-            return self.eris_p_iv[ix], self.eris_c_iv[ix], self.atm_iv[ix], 0.0
+            return self.eris_p_iv[ix], self.eris_c_iv[ix], self.atm_iv[ix], self.atm_iv_daily[ix]
 
         return 0.0, 0.0, 0.0, 0.0
 
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
         # Create objects
+        p_iv, c_iv, atm_iv, atm_iv_daily = self.get_impv_values(ix)
+
+        draw_items = [
+            IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
+            IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
+            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+        ]
+
+        draw_items.sort(key=lambda item: abs(item.value), reverse=True)
+
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
 
-        p_iv, c_iv, atm_iv, n225_vi = self.get_impv_values(ix)
-        if abs(p_iv) > abs(c_iv):
-            painter.setPen(self.ask_pen)
-            painter.setBrush(self.ask_brush)
-            rect: QtCore.QRectF = QtCore.QRectF(
+        for item in draw_items:
+            painter.setPen(item.pen)
+            painter.setBrush(item.brush)
+            rect = QtCore.QRectF(
                 ix - BAR_WIDTH,
                 0,
                 BAR_WIDTH * 2,
-                p_iv
+                item.value
             )
             painter.drawRect(rect)
 
-            painter.setPen(self.bid_pen)
-            painter.setBrush(self.bid_brush)
-            rect: QtCore.QRectF = QtCore.QRectF(
-                ix - BAR_WIDTH,
-                0,
-                BAR_WIDTH * 2,
-                c_iv
-            )
-            painter.drawRect(rect)
-        else:
-            painter.setPen(self.bid_pen)
-            painter.setBrush(self.bid_brush)
-            rect: QtCore.QRectF = QtCore.QRectF(
-                ix - BAR_WIDTH,
-                0,
-                BAR_WIDTH * 2,
-                c_iv
-            )
-            painter.drawRect(rect)
+        # ATM daily upper line
+        painter.setPen(self.atm_daily_pen)
+        start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily)
+        end_point = QtCore.QPointF(ix + BAR_WIDTH, atm_iv_daily)
+        painter.drawLine(start_point, end_point)
 
-            painter.setPen(self.ask_pen)
-            painter.setBrush(self.ask_brush)
-            rect: QtCore.QRectF = QtCore.QRectF(
-                ix - BAR_WIDTH,
-                0,
-                BAR_WIDTH * 2,
-                p_iv
-            )
-            painter.drawRect(rect)
+        # ATM daily lower line
+        start_point = QtCore.QPointF(ix - BAR_WIDTH, -atm_iv_daily)
+        end_point = QtCore.QPointF(ix + BAR_WIDTH, -atm_iv_daily)
+        painter.drawLine(start_point, end_point)
+
+        max_iv = max(abs(atm_iv), abs(p_iv), abs(c_iv))
+        if max_iv > atm_iv_daily * 1.5:
+            # ATM daily dashed line
+            pen = QtGui.QPen(self.atm_daily_pen)
+            pen.setStyle(QtCore.Qt.DashLine)
+            painter.setPen(pen)
+
+            # upper line
+            start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily * 2.0)
+            end_point = QtCore.QPointF(ix + BAR_WIDTH, atm_iv_daily * 2.0)
+            painter.drawLine(start_point, end_point)
+
+            # lower line
+            start_point = QtCore.QPointF(ix - BAR_WIDTH, -atm_iv_daily * 2.0)
+            end_point = QtCore.QPointF(ix + BAR_WIDTH, -atm_iv_daily * 2.0)
+            painter.drawLine(start_point, end_point)
 
         # Finish
         painter.end()
@@ -203,8 +228,17 @@ class IvItem(ChartItem):
         atm_iv_min = min(atm_iv_values)
         atm_iv_max = max(atm_iv_values)
 
-        min_iv = min(p_iv_min, c_iv_min, atm_iv_min)
-        max_iv = max(p_iv_max, c_iv_max, atm_iv_max)
+        atm_iv_daily_values = list(self.atm_iv_daily.values())[min_ix:max_ix + 1]
+        atm_iv_daily_max = max(atm_iv_daily_values) # atm_iv_daily upper line
+        atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
+
+        min_iv = min(p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min)
+        max_iv = max(p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max)
+
+        if min_iv < atm_iv_daily_min * 1.5:
+            min_iv = min(min_iv, atm_iv_daily_min * 2.0)
+        if max_iv > atm_iv_daily_max * 1.5:
+            max_iv = max(max_iv, atm_iv_daily_max * 2.0)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
