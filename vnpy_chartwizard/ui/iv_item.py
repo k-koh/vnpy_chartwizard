@@ -77,19 +77,19 @@ class IvItem(ChartItem):
                 iv = bar.eris_p_iv
                 if self.base_eris_p_iv is None and iv is not None:
                     self.base_eris_p_iv = iv
-                self.eris_p_iv[n] = (iv - self.base_eris_p_iv) * 100.0 if iv is not None else 0
+                self.eris_p_iv[n] = (iv - self.base_eris_p_iv) * 100.0 if iv is not None and iv != 0 else 0
 
                 iv = bar.eris_c_iv
                 if self.base_eris_c_iv is None and iv is not None:
                     self.base_eris_c_iv = iv
-                self.eris_c_iv[n] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None else 0
+                self.eris_c_iv[n] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None and iv != 0 else 0
 
                 iv = bar.atm_iv
                 if self.base_atm_iv is None and iv is not None:
                     self.base_atm_iv = iv
-                self.atm_iv[n] = (iv - self.base_atm_iv) * 100.0 if iv is not None else 0
+                self.atm_iv[n] = (iv - self.base_atm_iv) * 100.0 if iv is not None and iv != 0 else 0
                 # atm_iv 年率から日率に変換
-                self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None else 0
+                self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
         new_bar = True if ix not in self.eris_p_iv else False
         update = False
@@ -102,19 +102,19 @@ class IvItem(ChartItem):
             iv = bar.eris_p_iv
             if self.base_eris_p_iv is None and iv is not None:
                 self.base_eris_p_iv = iv
-            self.eris_p_iv[ix] = (iv - self.base_eris_p_iv) * 100.0 if iv is not None else 0
+            self.eris_p_iv[ix] = (iv - self.base_eris_p_iv) * 100.0 if iv is not None and iv != 0 else 0
 
             iv = bar.eris_c_iv
             if self.base_eris_c_iv is None and iv is not None:
                 self.base_eris_c_iv = iv
-            self.eris_c_iv[ix] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None else 0
+            self.eris_c_iv[ix] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None and iv != 0 else 0
 
             iv = bar.atm_iv
             if self.base_atm_iv is None and iv is not None:
                 self.base_atm_iv = iv
-            self.atm_iv[ix] = (iv - self.base_atm_iv) * 100.0 if iv is not None else 0
+            self.atm_iv[ix] = (iv - self.base_atm_iv) * 100.0 if iv is not None and iv != 0 else 0
             # atm_iv 年率から日率に変換
-            self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None else 0
+            self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
         # Return if already calcualted
         if ix in self.eris_p_iv:
