@@ -5,10 +5,12 @@ import pyqtgraph as pg
 
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int
 from vnpy.chart.item import ChartItem
-from vnpy.trader.constant import PriceType, CandleColor, OptionType
+from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevIvType
 from vnpy.trader.ui import QtCore, QtGui
 from vnpy.trader.object import BarData
 from vnpy.chart.manager import BarManager
+from vnpy_optionmaster.engine import OptionEngine
+from vnpy_optionmaster.base import APP_NAME as OPTION_APP_NAME
 
 BID_COLOR = (255, 174, 201)
 ASK_COLOR = (160, 255, 160)
@@ -42,6 +44,8 @@ class IvItem(ChartItem):
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
+        self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.MATCH_DELTA
+
         # Eris IV data
         self.eris_p_iv: Dict[int, float] = {}
         self.eris_c_iv: Dict[int, float] = {}
@@ -50,18 +54,24 @@ class IvItem(ChartItem):
         # atm_iv 年率から日率に変換
         self.atm_iv_daily: Dict[int, float] = {}
 
-        self.base_eris_p_iv = None
-        self.base_eris_c_iv = None
-        self.base_atm_iv = None
-        self.base_n225_vi = None
 
-    def get_base_iv(self):
-        base_bar = self._manager.get_current_session_base_bar()
-        if base_bar is not None:
-            self.base_eris_p_iv = base_bar.eris_p_iv
-            self.base_eris_c_iv = base_bar.eris_c_iv
-            self.base_atm_iv = base_bar.atm_iv
-            self.base_n225_vi = base_bar.n225_vi
+    def get_prev_day_option_iv(self, vt_symbol: str, prev_iv_type: OptionPrevIvType, put_strike: int, call_strike: int,
+                    atm_strike: int) -> tuple[float, float, float]:
+        op_month = vt_symbol.split('.')[0]
+        main_engine = self._manager.main_engine
+        option_engine: OptionEngine | None = main_engine.get_engine(OPTION_APP_NAME)
+
+        if option_engine:
+            p_iv, c_iv, a_iv = option_engine.get_prev_day_option_iv(
+                op_month,
+                prev_iv_type,
+                put_strike,
+                call_strike,
+                atm_strike
+            )
+            return p_iv, c_iv, a_iv
+        else:
+            return 0.0, 0.0, 0.0
 
 
     def get_impv_values(self, ix: int) -> tuple[float, float, float, float]:
@@ -71,23 +81,24 @@ class IvItem(ChartItem):
 
         # When initialize, calculate all rsi value
         if not self.eris_p_iv:
-            self.get_base_iv()
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
+                atm_price = round(bar.close_price / 500) * 500
+                prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
+                    bar.vt_symbol,
+                    self.prev_iv_type,
+                    bar.eris_p_strike,
+                    bar.eris_c_strike,
+                    atm_price
+                )
                 iv = bar.eris_p_iv
-                if self.base_eris_p_iv is None and iv is not None:
-                    self.base_eris_p_iv = iv
-                self.eris_p_iv[n] = (iv - self.base_eris_p_iv) * 100.0 if iv is not None and iv != 0 else 0
+                self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
 
                 iv = bar.eris_c_iv
-                if self.base_eris_c_iv is None and iv is not None:
-                    self.base_eris_c_iv = iv
-                self.eris_c_iv[n] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None and iv != 0 else 0
+                self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
 
                 iv = bar.atm_iv
-                if self.base_atm_iv is None and iv is not None:
-                    self.base_atm_iv = iv
-                self.atm_iv[n] = (iv - self.base_atm_iv) * 100.0 if iv is not None and iv != 0 else 0
+                self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
                 # atm_iv 年率から日率に変換
                 self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
@@ -99,20 +110,22 @@ class IvItem(ChartItem):
         if new_bar or update:
             # Else calculate new value
             bar = self._manager.get_bar(ix)
+            atm_price = round(bar.close_price / 500) * 500
+            prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
+                bar.vt_symbol,
+                self.prev_iv_type,
+                bar.eris_p_strike,
+                bar.eris_c_strike,
+                atm_price
+            )
             iv = bar.eris_p_iv
-            if self.base_eris_p_iv is None and iv is not None:
-                self.base_eris_p_iv = iv
-            self.eris_p_iv[ix] = (iv - self.base_eris_p_iv) * 100.0 if iv is not None and iv != 0 else 0
+            self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
 
             iv = bar.eris_c_iv
-            if self.base_eris_c_iv is None and iv is not None:
-                self.base_eris_c_iv = iv
-            self.eris_c_iv[ix] = (iv - self.base_eris_c_iv) * 100.0 if iv is not None and iv != 0 else 0
+            self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
 
             iv = bar.atm_iv
-            if self.base_atm_iv is None and iv is not None:
-                self.base_atm_iv = iv
-            self.atm_iv[ix] = (iv - self.base_atm_iv) * 100.0 if iv is not None and iv != 0 else 0
+            self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
             # atm_iv 年率から日率に変換
             self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
@@ -194,14 +207,17 @@ class IvItem(ChartItem):
     def get_y_range( self, min_ix: int = None, max_ix: int = None) -> Tuple[float, float]:
 
         min_iv, max_iv = self.get_iv_range(min_ix, max_ix)
+        print(f"get_y_range: {min_ix} - {max_ix} : {min_iv} - {max_iv}")
         return min_iv, max_iv
 
     def get_iv_range(self, min_ix: float | None = None, max_ix: float | None = None) -> tuple[float, float]:
         """
         Get iv range to show within given index range.
         """
+        self.iv_ranges.clear()
+
         if not self.eris_p_iv:
-            return -1.0, 1.0
+            return -3.0, 3.0
 
         cnt = len(self.eris_p_iv)
         if min_ix is None or max_ix is None:
