@@ -94,8 +94,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart.add_item(VolumeItem, "volume", "volume")
 
         # set IvItem prev iv type
-        chart._items["otm_delta_iv"].prev_iv_type = OptionPrevIvType.MATCH_DELTA
-        chart._items["otm_strike_iv"].prev_iv_type = OptionPrevIvType.MATCH_STRIKE
+        chart._items["otm_delta_iv"].prev_iv_type = OptionPrevIvType.SAME_DELTA
+        chart._items["otm_strike_iv"].prev_iv_type = OptionPrevIvType.SAME_STRIKE
 
         chart.add_cursor()
         return chart

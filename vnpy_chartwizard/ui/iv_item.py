@@ -1,9 +1,10 @@
+from datetime import datetime
 from itertools import count
 from typing import Dict, Tuple
 from dataclasses import dataclass
 import pyqtgraph as pg
 
-from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int
+from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR
 from vnpy.chart.item import ChartItem
 from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevIvType
 from vnpy.trader.ui import QtCore, QtGui
@@ -37,16 +38,22 @@ class IvItem(ChartItem):
         self.bid_pen: QtGui.QPen = pg.mkPen(color=BID_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=ASK_COLOR, width=PEN_WIDTH)
         self.atm_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
-        self.atm_daily_pen: QtGui.QPen = pg.mkPen(color=ATM_DAILY_COLOR, width=PEN_WIDTH)
+        self.atm_range1x_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
+        self.atm_range1x_pen.setStyle(QtCore.Qt.DashLine)
+        self.atm_range2x_pen: QtGui.QPen = pg.mkPen(color=UP_COLOR, width=PEN_WIDTH)
+        self.atm_range2x_pen.setStyle(QtCore.Qt.DashLine)
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=BID_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=ASK_COLOR)
         self.atm_brush: QtGui.QBrush = pg.mkBrush(color=ATM_COLOR)
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
-        self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.MATCH_DELTA
+        self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_DELTA
 
         # Eris IV data
+        self.eris_p_strike: Dict[int, int] = {}
+        self.eris_c_strike: Dict[int, int] = {}
+        self.eris_a_strike: Dict[int, int] = {}
         self.eris_p_iv: Dict[int, float] = {}
         self.eris_c_iv: Dict[int, float] = {}
         self.atm_iv: Dict[int, float] = {}
@@ -83,6 +90,9 @@ class IvItem(ChartItem):
         if not self.eris_p_iv:
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
+                # find 2025-11-20 03:39:00 bar to test
+                # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
+                #     print("debug it")
                 atm_price = round(bar.close_price / 500) * 500
                 prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                     bar.vt_symbol,
@@ -93,12 +103,15 @@ class IvItem(ChartItem):
                 )
                 iv = bar.eris_p_iv
                 self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
+                self.eris_p_strike[n] = bar.eris_p_strike
 
                 iv = bar.eris_c_iv
                 self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
+                self.eris_c_strike[n] = bar.eris_c_strike
 
                 iv = bar.atm_iv
                 self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
+                self.eris_a_strike[n] = atm_price
                 # atm_iv 年率から日率に変換
                 self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
@@ -110,6 +123,9 @@ class IvItem(ChartItem):
         if new_bar or update:
             # Else calculate new value
             bar = self._manager.get_bar(ix)
+            # find 2025-11-20 03:39:00 bar to test
+            # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
+            #     print("debug it")
             atm_price = round(bar.close_price / 500) * 500
             prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
@@ -120,12 +136,15 @@ class IvItem(ChartItem):
             )
             iv = bar.eris_p_iv
             self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
+            self.eris_p_strike[ix] = bar.eris_p_strike
 
             iv = bar.eris_c_iv
             self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
+            self.eris_c_strike[ix] = bar.eris_c_strike
 
             iv = bar.atm_iv
             self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
+            self.eris_a_strike[ix] = atm_price
             # atm_iv 年率から日率に変換
             self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
@@ -162,7 +181,7 @@ class IvItem(ChartItem):
             painter.drawRect(rect)
 
         # ATM daily upper line
-        painter.setPen(self.atm_daily_pen)
+        painter.setPen(self.atm_range1x_pen)
         start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily)
         end_point = QtCore.QPointF(ix + BAR_WIDTH, atm_iv_daily)
         painter.drawLine(start_point, end_point)
@@ -175,9 +194,7 @@ class IvItem(ChartItem):
         max_iv = max(abs(atm_iv), abs(p_iv), abs(c_iv))
         if max_iv > atm_iv_daily * 1.5:
             # ATM daily dashed line
-            pen = QtGui.QPen(self.atm_daily_pen)
-            pen.setStyle(QtCore.Qt.DashLine)
-            painter.setPen(pen)
+            painter.setPen(self.atm_range2x_pen)
 
             # upper line
             start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily * 2.0)
@@ -207,7 +224,7 @@ class IvItem(ChartItem):
     def get_y_range( self, min_ix: int = None, max_ix: int = None) -> Tuple[float, float]:
 
         min_iv, max_iv = self.get_iv_range(min_ix, max_ix)
-        print(f"get_y_range: {min_ix} - {max_ix} : {min_iv} - {max_iv}")
+        # print(f"get_y_range: {min_ix} - {max_ix} : {min_iv} - {max_iv}")
         return min_iv, max_iv
 
     def get_iv_range(self, min_ix: float | None = None, max_ix: float | None = None) -> tuple[float, float]:
@@ -263,10 +280,13 @@ class IvItem(ChartItem):
     def get_info_text(self, ix: int) -> str:
         """"""
         if ix in self.eris_p_iv:
+            a_strike = self.eris_a_strike[ix]
+            p_strike = self.eris_p_strike[ix]
+            c_strike = self.eris_c_strike[ix]
             a_iv = self.atm_iv[ix]
             p_iv = self.eris_p_iv[ix]
             c_iv = self.eris_c_iv[ix]
-            text = f"IV ATM {a_iv:.2f}% OTM-P {p_iv:.2f}% OTM-C {c_iv:.2f}%"
+            text = f"前日比OTM IV({self.prev_iv_type.value}) ATM({a_strike}) {a_iv:.2f}% PUT({p_strike}) {p_iv:.2f}% CALL({c_strike}) {c_iv:.2f}%"
         else:
             text = "IV -"
 
