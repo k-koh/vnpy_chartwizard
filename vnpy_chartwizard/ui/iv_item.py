@@ -214,7 +214,8 @@ class IvItem(ChartItem):
         """
         Get iv range to show within given index range.
         """
-        self.iv_ranges.clear()
+        if not self.eris_p_iv and self._manager.get_count() > 0:
+            self.get_impv_values(0)
 
         if not self.eris_p_iv:
             return -3.0, 3.0
