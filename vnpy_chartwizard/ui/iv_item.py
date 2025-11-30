@@ -7,6 +7,7 @@ import pyqtgraph as pg
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR
 from vnpy.chart.item import ChartItem
 from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevIvType
+from vnpy.trader.database import DB_TZ
 from vnpy.trader.ui import QtCore, QtGui
 from vnpy.trader.object import BarData
 from vnpy.chart.manager import BarManager
@@ -63,7 +64,7 @@ class IvItem(ChartItem):
 
 
     def get_prev_day_option_iv(self, vt_symbol: str, prev_iv_type: OptionPrevIvType, put_strike: int, call_strike: int,
-                    atm_strike: int) -> tuple[float, float, float]:
+                    atm_strike: int, dt: datetime) -> tuple[float, float, float]:
         op_month = vt_symbol.split('.')[0]
         main_engine = self._manager.main_engine
         option_engine: OptionEngine | None = main_engine.get_engine(OPTION_APP_NAME)
@@ -74,7 +75,8 @@ class IvItem(ChartItem):
                 prev_iv_type,
                 put_strike,
                 call_strike,
-                atm_strike
+                atm_strike,
+                dt
             )
             return p_iv, c_iv, a_iv
         else:
@@ -88,6 +90,7 @@ class IvItem(ChartItem):
 
         # When initialize, calculate all rsi value
         if not self.eris_p_iv:
+            dt: datetime = datetime.now(DB_TZ)
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
                 # find 2025-11-20 03:39:00 bar to test
@@ -99,7 +102,8 @@ class IvItem(ChartItem):
                     self.prev_iv_type,
                     bar.eris_p_strike,
                     bar.eris_c_strike,
-                    atm_price
+                    atm_price,
+                    dt
                 )
                 iv = bar.eris_p_iv
                 self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
@@ -127,12 +131,14 @@ class IvItem(ChartItem):
             # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
             #     print("debug it")
             atm_price = round(bar.close_price / 500) * 500
+            dt: datetime = datetime.now(DB_TZ)
             prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
                 self.prev_iv_type,
                 bar.eris_p_strike,
                 bar.eris_c_strike,
-                atm_price
+                atm_price,
+                dt
             )
             iv = bar.eris_p_iv
             self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
