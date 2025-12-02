@@ -252,6 +252,9 @@ class IvItem(ChartItem):
             max_ix = to_int(max_ix)
             max_ix = min(max_ix, cnt - 1)
 
+        if min_ix > max_ix:
+            return -3.0, 3.0
+
         buf: tuple[float, float] | None = self.iv_ranges.get((min_ix, max_ix), None)
         if buf:
             return buf
