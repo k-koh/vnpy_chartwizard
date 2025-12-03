@@ -63,7 +63,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.setTabsClosable(True)
         self.tab.tabCloseRequested.connect(self.close_tab)
 
-        self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("nk-2512.JPX")
+        self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
+        self.symbol_line.addItems(["nk-2512.JPX", "nk-2601.JPX"])
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新建图表")
         self.button.clicked.connect(self.new_chart)
@@ -115,7 +116,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
     def new_chart(self) -> None:
         """创建新的图表"""
         # Filter invalid vt_symbol
-        vt_symbol: str = self.symbol_line.text()
+        vt_symbol: str = self.symbol_line.currentText()
         if not vt_symbol:
             return
 
