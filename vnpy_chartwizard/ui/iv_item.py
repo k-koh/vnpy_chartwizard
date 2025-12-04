@@ -49,7 +49,7 @@ class IvItem(ChartItem):
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
-        self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_DELTA
+        self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_STRIKE
 
         # Eris IV data
         self.eris_p_strike: Dict[int, int] = {}
@@ -96,7 +96,7 @@ class IvItem(ChartItem):
                 # find 2025-11-20 03:39:00 bar to test
                 # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
                 #     print("debug it")
-                atm_price = round(bar.close_price / 500) * 500
+                atm_price = round(bar.close_price / 1000) * 1000
                 prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                     bar.vt_symbol,
                     self.prev_iv_type,
@@ -130,7 +130,7 @@ class IvItem(ChartItem):
             # find 2025-11-20 03:39:00 bar to test
             # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
             #     print("debug it")
-            atm_price = round(bar.close_price / 500) * 500
+            atm_price = round(bar.close_price / 1000) * 1000
             dt: datetime = datetime.now(DB_TZ)
             prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
