@@ -14,12 +14,8 @@ from vnpy.chart.manager import BarManager
 from vnpy_optionmaster.engine import OptionEngine
 from vnpy_optionmaster.base import APP_NAME as OPTION_APP_NAME
 
-BID_COLOR = (255, 174, 201)
-ASK_COLOR = (160, 255, 160)
 # ATM_COLOR use yellow
 ATM_COLOR = (255, 255, 0)
-# ATM_DAILY_COLOR use red
-ATM_DAILY_COLOR = (255, 0, 0)
 
 
 @dataclass
@@ -36,15 +32,15 @@ class IvItem(ChartItem):
         """"""
         super().__init__(manager)
 
-        self.bid_pen: QtGui.QPen = pg.mkPen(color=BID_COLOR, width=PEN_WIDTH)
-        self.ask_pen: QtGui.QPen = pg.mkPen(color=ASK_COLOR, width=PEN_WIDTH)
+        self.bid_pen: QtGui.QPen = pg.mkPen(color=UP_COLOR, width=PEN_WIDTH)
+        self.ask_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
         self.atm_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
         self.atm_range1x_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
         self.atm_range1x_pen.setStyle(QtCore.Qt.DashLine)
         self.atm_range2x_pen: QtGui.QPen = pg.mkPen(color=UP_COLOR, width=PEN_WIDTH)
         self.atm_range2x_pen.setStyle(QtCore.Qt.DashLine)
-        self.bid_brush: QtGui.QBrush = pg.mkBrush(color=BID_COLOR)
-        self.ask_brush: QtGui.QBrush = pg.mkBrush(color=ASK_COLOR)
+        self.bid_brush: QtGui.QBrush = pg.mkBrush(color=UP_COLOR)
+        self.ask_brush: QtGui.QBrush = pg.mkBrush(color=DOWN_COLOR)
         self.atm_brush: QtGui.QBrush = pg.mkBrush(color=ATM_COLOR)
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
