@@ -56,7 +56,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
     def init_ui(self) -> None:
         """初始化界面"""
-        self.setWindowTitle("K线图表")
+        self.setWindowTitle("株価チャート")
 
         self.tab: QtWidgets.QTabWidget = QtWidgets.QTabWidget()
 
@@ -66,11 +66,11 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
         self.symbol_line.addItems(["nk-2512.JPX", "nk-2601.JPX"])
 
-        self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新建图表")
+        self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
         self.button.clicked.connect(self.new_chart)
 
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
-        hbox.addWidget(QtWidgets.QLabel("本地代码"))
+        hbox.addWidget(QtWidgets.QLabel("銘柄コード"))
         hbox.addWidget(self.symbol_line)
         hbox.addWidget(self.button)
         hbox.addStretch()
