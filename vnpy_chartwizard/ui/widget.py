@@ -64,7 +64,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2512.JPX", "nk-2601.JPX"])
+        self.symbol_line.addItems(["nk-2601.JPX", "nk-2602.JPX", "nk-2512.JPX"])
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
         self.button.clicked.connect(self.new_chart)
