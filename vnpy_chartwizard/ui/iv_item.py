@@ -163,7 +163,7 @@ class IvItem(ChartItem):
         draw_items = [
             IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
             IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
-            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+            # IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
         ]
 
         draw_items.sort(key=lambda item: abs(item.value), reverse=True)
