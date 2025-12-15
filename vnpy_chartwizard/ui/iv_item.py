@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 from dataclasses import dataclass
 import pyqtgraph as pg
 
-from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR
+from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, ATM_COLOR
 from vnpy.chart.item import ChartItem
 from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevIvType
 from vnpy.trader.database import DB_TZ
@@ -13,9 +13,6 @@ from vnpy.trader.object import BarData
 from vnpy.chart.manager import BarManager
 from vnpy_optionmaster.engine import OptionEngine
 from vnpy_optionmaster.base import APP_NAME as OPTION_APP_NAME
-
-# ATM_COLOR use yellow
-ATM_COLOR = (255, 255, 0)
 
 
 @dataclass
@@ -35,9 +32,9 @@ class IvItem(ChartItem):
         self.bid_pen: QtGui.QPen = pg.mkPen(color=UP_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
         self.atm_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
-        self.atm_range1x_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
+        self.atm_range1x_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
         self.atm_range1x_pen.setStyle(QtCore.Qt.DashLine)
-        self.atm_range2x_pen: QtGui.QPen = pg.mkPen(color=UP_COLOR, width=PEN_WIDTH)
+        self.atm_range2x_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
         self.atm_range2x_pen.setStyle(QtCore.Qt.DashLine)
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=UP_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=DOWN_COLOR)
