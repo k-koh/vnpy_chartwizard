@@ -89,7 +89,7 @@ class IvItem(ChartItem):
                 # find 2025-11-20 03:39:00 bar to test
                 # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
                 #     print("debug it")
-                atm_price = round(bar.close_price / 1000) * 1000
+                atm_price = round(bar.close_price / 500) * 500
                 prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                     bar.vt_symbol,
                     self.prev_iv_type,
@@ -123,7 +123,7 @@ class IvItem(ChartItem):
             # find 2025-11-20 03:39:00 bar to test
             # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
             #     print("debug it")
-            atm_price = round(bar.close_price / 1000) * 1000
+            atm_price = round(bar.close_price / 500) * 500
             dt: datetime = datetime.now(DB_TZ)
             prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
@@ -160,7 +160,7 @@ class IvItem(ChartItem):
         draw_items = [
             IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
             IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
-            # IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
         ]
 
         draw_items.sort(key=lambda item: abs(item.value), reverse=True)
