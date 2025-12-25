@@ -89,22 +89,28 @@ class IvItem(ChartItem):
                 # find 2025-11-20 03:39:00 bar to test
                 # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
                 #     print("debug it")
-                atm_price = round(bar.close_price / 500) * 500
+                atm_price = round(bar.close_price / 1000) * 1000
                 prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                     bar.vt_symbol,
                     self.prev_iv_type,
-                    bar.eris_p_strike,
-                    bar.eris_c_strike,
+                    # bar.eris_p_strike,
+                    # bar.eris_c_strike,
+                    bar.delta012_p_strike,
+                    bar.delta022_c_strike,
                     atm_price,
                     dt
                 )
-                iv = bar.eris_p_iv
+                # iv = bar.eris_p_iv
+                iv = bar.delta012_p_iv
                 self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
-                self.eris_p_strike[n] = bar.eris_p_strike
+                # self.eris_p_strike[n] = bar.eris_p_strike
+                self.eris_p_strike[n] = bar.delta012_p_strike
 
-                iv = bar.eris_c_iv
+                # iv = bar.eris_c_iv
+                iv = bar.delta022_c_iv
                 self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
-                self.eris_c_strike[n] = bar.eris_c_strike
+                # self.eris_c_strike[n] = bar.eris_c_strike
+                self.eris_c_strike[n] = bar.delta022_c_strike
 
                 iv = bar.atm_iv
                 self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
@@ -123,23 +129,29 @@ class IvItem(ChartItem):
             # find 2025-11-20 03:39:00 bar to test
             # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
             #     print("debug it")
-            atm_price = round(bar.close_price / 500) * 500
+            atm_price = round(bar.close_price / 1000) * 1000
             dt: datetime = datetime.now(DB_TZ)
             prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
                 self.prev_iv_type,
-                bar.eris_p_strike,
-                bar.eris_c_strike,
+                # bar.eris_p_strike,
+                # bar.eris_c_strike,
+                bar.delta012_p_strike,
+                bar.delta022_c_strike,
                 atm_price,
                 dt
             )
-            iv = bar.eris_p_iv
+            # iv = bar.eris_p_iv
+            iv = bar.delta012_p_iv
             self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
-            self.eris_p_strike[ix] = bar.eris_p_strike
+            # self.eris_p_strike[ix] = bar.eris_p_strike
+            self.eris_p_strike[ix] = bar.delta012_p_strike
 
-            iv = bar.eris_c_iv
+            # iv = bar.eris_c_iv
+            iv = bar.delta022_c_iv
             self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
-            self.eris_c_strike[ix] = bar.eris_c_strike
+            # self.eris_c_strike[ix] = bar.eris_c_strike
+            self.eris_c_strike[ix] = bar.delta022_c_strike
 
             iv = bar.atm_iv
             self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
