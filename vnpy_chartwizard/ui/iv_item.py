@@ -324,10 +324,21 @@ class IvItem(ChartItem):
             a_strike = self.eris_a_strike[ix]
             p_strike = self.eris_p_strike[ix]
             c_strike = self.eris_c_strike[ix]
-            a_iv = self.atm_iv[ix]
+            a_iv    = self.atm_iv[ix]
+            n225_vi = self.n225_vi[ix]
             p_iv = self.eris_p_iv[ix]
             c_iv = self.eris_c_iv[ix]
-            text = f"前日比OTM IV({self.prev_iv_type.value}) ATM({a_strike}) {a_iv:.2f}% PUT({p_strike}) {p_iv:.2f}% CALL({c_strike}) {c_iv:.2f}%"
+            atm  = f"A({a_strike}) {a_iv:.2f}%"
+            n225 = f"V({a_strike}) {n225_vi:.2f}%"
+            put  = f"P({p_strike}) {p_iv:.2f}%"
+            call = f"C({c_strike}) {c_iv:.2f}%"
+            words: list = [
+                atm,
+                n225,
+                put,
+                call
+            ]
+            text: str = "\n".join(words)
         else:
             text = "IV -"
 
