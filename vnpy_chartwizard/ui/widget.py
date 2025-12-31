@@ -7,6 +7,7 @@ import pyqtgraph as pg
 from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevIvType
 from vnpy.event import EventEngine, Event
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
+from vnpy.chart.item import ChartItem
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import QtWidgets, QtCore
 from vnpy.trader.event import EVENT_TICK
@@ -28,6 +29,62 @@ class CustomChartWidget(ChartWidget):
     def __init__(self, main_engine: MainEngine) -> None:
         super().__init__()
         self._manager.main_engine = main_engine
+        self.secondary_items: dict[str, tuple[ChartItem, pg.ViewBox]] = {}
+
+    def add_secondary_item(
+        self,
+        item_class: type[ChartItem],
+        item_name: str,
+        plot_name: str
+    ) -> None:
+        plot: pg.PlotItem = self.get_plot(plot_name)
+        if not plot:
+            return
+
+        # Create and link view
+        view = pg.ViewBox()
+        
+        # Add view to plot scene
+        plot.scene().addItem(view)
+
+        # Link view to left axis
+        plot.showAxis('left')
+        plot.getAxis('left').linkToView(view)
+
+        # Link x-axis
+        view.setXLink(plot)
+
+        # Create item
+        item = item_class(self._manager)
+        self._items[item_name] = item      # So it gets updates
+        view.addItem(item)
+        self.secondary_items[item_name] = (item, view)
+
+        # Handle resize
+        def update_view_geometry() -> None:
+            view.setGeometry(plot.getViewBox().sceneBoundingRect())
+
+        plot.getViewBox().sigResized.connect(update_view_geometry)
+        update_view_geometry()  # Initial call
+
+    def _update_y_range(self) -> None:
+        """
+        Update the y-axis range of plots.
+        """
+        super()._update_y_range()  # Do the original stuff
+
+        if not self._first_plot:
+            return
+
+        view: pg.ViewBox = self._first_plot.getViewBox()
+        view_range: list = view.viewRange()
+
+        min_ix: int = max(0, int(view_range[0][0]))
+        max_ix: int = min(self._manager.get_count(), int(view_range[0][1]))
+
+        for item, view in self.secondary_items.values():
+            y_range: tuple = item.get_y_range(min_ix, max_ix)
+            view.setRange(yRange=y_range, padding=0.05)
 
 
 class ChartWizardWidget(QtWidgets.QWidget):
@@ -81,21 +138,19 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.setLayout(vbox)
 
-    def create_chart(self) -> ChartWidget:
+    def create_chart(self) -> CustomChartWidget:
         """创建图表对象"""
-        chart: ChartWidget = CustomChartWidget(self.main_engine)
+        chart: CustomChartWidget = CustomChartWidget(self.main_engine)
         chart.add_plot("candle", hide_x_axis=True)
-        # chart.add_plot("otm_delta_iv", maximum_height=400, hide_x_axis=True)
-        chart.add_plot("otm_strike_iv", maximum_height=400, hide_x_axis=True)
         chart.add_plot("volume", maximum_height=200)
 
         chart.add_item(CandleItem, "candle", "candle")
-        # chart.add_item(IvItem, "otm_delta_iv", "otm_delta_iv")
-        chart.add_item(IvItem, "otm_strike_iv", "otm_strike_iv")
         chart.add_item(VolumeItem, "volume", "volume")
 
+        # Add IV as secondary item to candle plot
+        chart.add_secondary_item(IvItem, "otm_strike_iv", "candle")
+
         # set IvItem prev iv type
-        # chart._items["otm_delta_iv"].prev_iv_type = OptionPrevIvType.SAME_DELTA
         chart._items["otm_strike_iv"].prev_iv_type = OptionPrevIvType.SAME_STRIKE
 
         chart.add_cursor()
