@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 from dataclasses import dataclass
 import pyqtgraph as pg
 
-from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, ATM_COLOR, WHITE_COLOR
+from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, ATM_COLOR, WHITE_COLOR, GREEN_COLOR
 from vnpy.chart.item import ChartItem
 from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevIvType
 from vnpy.trader.database import DB_TZ
@@ -32,7 +32,7 @@ class IvItem(ChartItem):
         self.bid_pen: QtGui.QPen = pg.mkPen(color=UP_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
         self.atm_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
-        self.n225_vi_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)  # Orange
+        self.n225_vi_pen: QtGui.QPen = pg.mkPen(color=GREEN_COLOR, width=PEN_WIDTH)  # Orange
 
         self.atm_range1x_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
         self.atm_range1x_pen.setStyle(QtCore.Qt.DashLine)
@@ -42,7 +42,7 @@ class IvItem(ChartItem):
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=UP_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=DOWN_COLOR)
         self.atm_brush: QtGui.QBrush = pg.mkBrush(color=ATM_COLOR)
-        self.n225_vi_brush: QtGui.QBrush = pg.mkBrush(color=WHITE_COLOR)  # Orange
+        self.n225_vi_brush: QtGui.QBrush = pg.mkBrush(color=GREEN_COLOR)  # Orange
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
@@ -328,13 +328,13 @@ class IvItem(ChartItem):
             n225_vi = self.n225_vi[ix]
             p_iv = self.eris_p_iv[ix]
             c_iv = self.eris_c_iv[ix]
-            atm  = f"A({a_strike}) {a_iv:.2f}%"
             n225 = f"V({a_strike}) {n225_vi:.2f}%"
+            atm  = f"A({a_strike}) {a_iv:.2f}%"
             put  = f"P({p_strike}) {p_iv:.2f}%"
             call = f"C({c_strike}) {c_iv:.2f}%"
             words: list = [
-                atm,
                 n225,
+                atm,
                 put,
                 call
             ]
