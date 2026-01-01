@@ -59,6 +59,9 @@ class CustomChartWidget(ChartWidget):
         self._items[item_name] = item      # So it gets updates
         view.addItem(item)
         self.secondary_items[item_name] = (item, view)
+        self._item_plot_map2[item] = plot  # For y-range update
+
+
 
         # Handle resize
         def update_view_geometry() -> None:
@@ -121,7 +124,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2601.JPX", "nk-2602.JPX", "nk-vin1.JPX", "nk-vix0.JPX", "nk-2512.JPX"])
+        self.symbol_line.addItems(["nk-2601.JPX", "nk-2602.JPX", "nk-vin1.JPX", "nk-vix0.JPX"])
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
         self.button.clicked.connect(self.new_chart)
