@@ -361,6 +361,8 @@ class IvItem(ChartItem):
             n225_vi = self.n225_vi[ix]
             p_iv = self.eris_p_iv[ix]
             c_iv = self.eris_c_iv[ix]
+            p_strike = int(p_strike) if p_strike is not None else "--------"
+            c_strike = int(c_strike) if c_strike is not None else "--------"
             n225 = f"V({a_strike}) {n225_vi:.2f}%"
             atm  = f"A({a_strike}) {a_iv:.2f}%"
             put  = f"P({p_strike}) {p_iv:.2f}%"
