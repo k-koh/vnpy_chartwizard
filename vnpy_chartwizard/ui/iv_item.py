@@ -1,12 +1,11 @@
 from datetime import datetime
-from itertools import count
 from typing import Dict, Tuple
 from dataclasses import dataclass
 import pyqtgraph as pg
 
-from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, ATM_COLOR, WHITE_COLOR, GREEN_COLOR
+from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, ATM_COLOR, WHITE_COLOR, PINK_COLOR
 from vnpy.chart.item import ChartItem
-from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevIvType
+from vnpy.trader.constant import OptionPrevIvType
 from vnpy.trader.database import DB_TZ
 from vnpy.trader.ui import QtCore, QtGui
 from vnpy.trader.object import BarData
@@ -34,17 +33,12 @@ class IvItem(ChartItem):
         self.bid_pen: QtGui.QPen = pg.mkPen(color=UP_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
         self.atm_pen: QtGui.QPen = pg.mkPen(color=ATM_COLOR, width=PEN_WIDTH)
-        self.n225_vi_pen: QtGui.QPen = pg.mkPen(color=GREEN_COLOR, width=PEN_WIDTH)  # Orange
-
-        self.atm_range1x_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)
-        self.atm_range1x_pen.setStyle(QtCore.Qt.DashLine)
-        self.atm_range2x_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)
-        self.atm_range2x_pen.setStyle(QtCore.Qt.DashLine)
+        self.n225_vi_pen: QtGui.QPen = pg.mkPen(color=PINK_COLOR, width=PEN_WIDTH)  # Orange
 
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=UP_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=DOWN_COLOR)
         self.atm_brush: QtGui.QBrush = pg.mkBrush(color=ATM_COLOR)
-        self.n225_vi_brush: QtGui.QBrush = pg.mkBrush(color=GREEN_COLOR)  # Orange
+        self.n225_vi_brush: QtGui.QBrush = pg.mkBrush(color=PINK_COLOR)  # Orange
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
@@ -193,43 +187,29 @@ class IvItem(ChartItem):
         # Create objects
         p_iv, c_iv, atm_iv, atm_iv_daily, n225_vi = self.get_impv_values(ix)
 
+        draw_items = [
+            IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
+            IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
+            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+            IvDrawItem(value=n225_vi, pen=self.n225_vi_pen, brush=self.n225_vi_brush),
+        ]
+
+        draw_items.sort(key=lambda item: abs(item.value), reverse=True)
+
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
 
-        # Draw y=0 base line
-        painter.setPen(self.base_pen)
-        start_point = QtCore.QPointF(ix - BAR_WIDTH, 0)
-        end_point = QtCore.QPointF(ix + BAR_WIDTH, 0)
-        painter.drawLine(start_point, end_point)
+        for item in draw_items:
+            painter.setPen(item.pen)
+            painter.setBrush(item.brush)
+            rect = QtCore.QRectF(
+                ix - BAR_WIDTH,
+                0,
+                BAR_WIDTH * 2,
+                item.value
+            )
+            painter.drawRect(rect)
 
-        # Draw IV lines
-        if ix > 0: # Only draw lines if there is a previous bar
-            prev_p_iv, prev_c_iv, prev_atm_iv, prev_atm_iv_daily, prev_n225_vi = self.get_impv_values(ix - 1)
-
-            # Draw p_iv line
-            painter.setPen(self.ask_pen)
-            start_point = QtCore.QPointF(ix - 1, prev_p_iv)
-            end_point = QtCore.QPointF(ix, p_iv)
-            painter.drawLine(start_point, end_point)
-
-            # Draw c_iv line
-            painter.setPen(self.bid_pen)
-            start_point = QtCore.QPointF(ix - 1, prev_c_iv)
-            end_point = QtCore.QPointF(ix, c_iv)
-            painter.drawLine(start_point, end_point)
-
-            # Draw atm_iv line
-            painter.setPen(self.atm_pen)
-            start_point = QtCore.QPointF(ix - 1, prev_atm_iv)
-            end_point = QtCore.QPointF(ix, atm_iv)
-            painter.drawLine(start_point, end_point)
-
-            # Draw n225_vi line
-            painter.setPen(self.n225_vi_pen)
-            start_point = QtCore.QPointF(ix - 1, prev_n225_vi)
-            end_point = QtCore.QPointF(ix, n225_vi)
-            painter.drawLine(start_point, end_point)
-        
         # ATM daily upper line (these remain as before, they are horizontal)
         painter.setPen(self.base_pen)
         start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily * 0.5)
@@ -241,9 +221,8 @@ class IvItem(ChartItem):
         end_point = QtCore.QPointF(ix + BAR_WIDTH, -atm_iv_daily * 0.5)
         painter.drawLine(start_point, end_point)
 
-        # max_iv_val = max(abs(atm_iv), abs(p_iv), abs(c_iv))
-        min_iv_val = min(p_iv, c_iv)
-        max_iv_val = max(p_iv, c_iv)
+        min_iv_val = min(n225_vi, atm_iv, p_iv, c_iv)
+        max_iv_val = max(n225_vi, atm_iv, p_iv, c_iv)
         if max_iv_val > atm_iv_daily * 0.8:
             # upper line
             start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily)

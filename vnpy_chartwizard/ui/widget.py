@@ -141,17 +141,16 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.setLayout(vbox)
 
-    def create_chart(self) -> CustomChartWidget:
+    def create_chart(self) -> ChartWidget:
         """创建图表对象"""
-        chart: CustomChartWidget = CustomChartWidget(self.main_engine)
+        chart: ChartWidget = CustomChartWidget(self.main_engine)
         chart.add_plot("candle", hide_x_axis=True)
-        chart.add_plot("volume", maximum_height=200)
+        chart.add_plot("otm_strike_iv", maximum_height=300, hide_x_axis=True)
+        chart.add_plot("volume", maximum_height=100)
 
         chart.add_item(CandleItem, "candle", "candle")
+        chart.add_item(IvItem, "otm_strike_iv", "otm_strike_iv")
         chart.add_item(VolumeItem, "volume", "volume")
-
-        # Add IV as secondary item to candle plot
-        chart.add_secondary_item(IvItem, "otm_strike_iv", "candle")
 
         # set IvItem prev iv type
         chart._items["otm_strike_iv"].prev_iv_type = OptionPrevIvType.SAME_STRIKE
