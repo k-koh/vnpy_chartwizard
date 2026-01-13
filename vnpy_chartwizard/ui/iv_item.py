@@ -256,6 +256,28 @@ class IvItem(ChartItem):
             end_point = QtCore.QPointF(ix + BAR_WIDTH, -atm_iv_daily * 2.0)
             painter.drawLine(start_point, end_point)
 
+        if max_iv_val > atm_iv_daily * 2.3:
+            # upper line
+            start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily * 2.5)
+            end_point = QtCore.QPointF(ix + BAR_WIDTH, atm_iv_daily * 2.5)
+            painter.drawLine(start_point, end_point)
+        elif min_iv_val < -atm_iv_daily * 2.3:
+            # lower line
+            start_point = QtCore.QPointF(ix - BAR_WIDTH, -atm_iv_daily * 2.5)
+            end_point = QtCore.QPointF(ix + BAR_WIDTH, -atm_iv_daily * 2.5)
+            painter.drawLine(start_point, end_point)
+
+        if max_iv_val > atm_iv_daily * 2.8:
+            # upper line
+            start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily * 3.0)
+            end_point = QtCore.QPointF(ix + BAR_WIDTH, atm_iv_daily * 3.0)
+            painter.drawLine(start_point, end_point)
+        elif min_iv_val < -atm_iv_daily * 2.8:
+            # lower line
+            start_point = QtCore.QPointF(ix - BAR_WIDTH, -atm_iv_daily * 3.0)
+            end_point = QtCore.QPointF(ix + BAR_WIDTH, -atm_iv_daily * 3.0)
+            painter.drawLine(start_point, end_point)
+
 
         # Finish
         painter.end()
