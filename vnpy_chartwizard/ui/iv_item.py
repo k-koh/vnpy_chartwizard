@@ -207,7 +207,7 @@ class IvItem(ChartItem):
             IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
             IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
             IvDrawItem(value=delta002_c_iv, pen=self.d002_pen, brush=self.d002_brush),
-            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+            # IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
             IvDrawItem(value=n225_vi, pen=self.n225_vi_pen, brush=self.n225_vi_brush),
         ]
 
@@ -363,8 +363,10 @@ class IvItem(ChartItem):
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
-        min_iv = min(p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min, n225_vi_min)
-        max_iv = max(p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max, n225_vi_max)
+        # min_iv = min(p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min, n225_vi_min)
+        # max_iv = max(p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max, n225_vi_max)
+        min_iv = min(p_iv_min, c_iv_min,  atm_iv_daily_min, n225_vi_min)
+        max_iv = max(p_iv_max, c_iv_max,  atm_iv_daily_max, n225_vi_max)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
@@ -384,17 +386,17 @@ class IvItem(ChartItem):
 
             p_strike = int(p_strike) if p_strike is not None else "--------"
             c_strike = int(c_strike) if c_strike is not None else "--------"
-            c_002_strike = int(c_strike) if c_002_strike is not None else "--------"
+            c_002_strike = int(c_002_strike) if c_002_strike is not None else "--------"
 
-            n225     = f"N({a_strike}) {n225_vi:.2f}%"
-            atm      = f"A({a_strike}) {a_iv:.2f}%"
-            put      = f"P({p_strike}) {p_iv:.2f}%"
-            call     = f"C({c_strike}) {c_iv:.2f}%"
-            call_002 = f"F({c_002_strike}) {c_002_iv:.2f}%"
+            n225     = f"225VI({a_strike}) {n225_vi:.2f}%"
+            put      = f"P0.12({p_strike}) {p_iv:.2f}%"
+            atm      = f"A0.50({a_strike}) {a_iv:.2f}%"
+            call     = f"C0.22({c_strike}) {c_iv:.2f}%"
+            call_002 = f"C0.02({c_002_strike}) {c_002_iv:.2f}%"
             words: list = [
                 n225,
-                atm,
                 put,
+                atm,
                 call,
                 call_002
             ]
