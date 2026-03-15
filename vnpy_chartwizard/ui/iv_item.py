@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import pyqtgraph as pg
 
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, YELLOW_COLOR, WHITE_COLOR, BLUE_COLOR, \
-    GREEN_COLOR, MAGENTA_COLOR, ORANGE_COLOR, RED_COLOR, SPRING_GREEN_COLOR
+    GREEN_COLOR, ORANGE_COLOR, RED_COLOR, SPRING_GREEN_COLOR
 from vnpy.chart.item import ChartItem
 from vnpy.trader.constant import OptionPrevIvType
 from vnpy.trader.database import DB_TZ
@@ -33,14 +33,12 @@ class IvItem(ChartItem):
 
         self.bid_pen: QtGui.QPen = pg.mkPen(color=RED_COLOR, width=PEN_WIDTH)
         self.d002_pen: QtGui.QPen = pg.mkPen(color=YELLOW_COLOR, width=PEN_WIDTH)
-        self.d002_p_pen: QtGui.QPen = pg.mkPen(color=MAGENTA_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
         self.atm_pen: QtGui.QPen = pg.mkPen(color=SPRING_GREEN_COLOR, width=PEN_WIDTH)
         self.n225_vi_pen: QtGui.QPen = pg.mkPen(color=BLUE_COLOR, width=PEN_WIDTH)  # Orange
 
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=RED_COLOR)
         self.d002_brush: QtGui.QBrush = pg.mkBrush(color=YELLOW_COLOR)
-        self.d002_p_brush: QtGui.QBrush = pg.mkBrush(color=MAGENTA_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=DOWN_COLOR)
         self.atm_brush: QtGui.QBrush = pg.mkBrush(color=SPRING_GREEN_COLOR)
         self.n225_vi_brush: QtGui.QBrush = pg.mkBrush(color=BLUE_COLOR)  # Orange
@@ -50,12 +48,11 @@ class IvItem(ChartItem):
         self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_STRIKE
 
         # Eris IV data
-        self.delta002_p_strike: Dict[int, int] = {}
         self.eris_p_strike: Dict[int, int] = {}
         self.eris_c_strike: Dict[int, int] = {}
         self.delta002_c_strike: Dict[int, int] = {}
         self.eris_a_strike: Dict[int, int] = {}
-        self.delta002_p_iv: Dict[int, float] = {}
+
         self.eris_p_iv: Dict[int, float] = {}
         self.eris_c_iv: Dict[int, float] = {}
         self.delta002_c_iv: Dict[int, float] = {}
@@ -65,26 +62,26 @@ class IvItem(ChartItem):
         self.atm_iv_daily: Dict[int, float] = {}
 
 
-    def get_prev_day_option_iv(self, vt_symbol: str, prev_iv_type: OptionPrevIvType, delta002_p_strike: int, put_strike: int, call_strike: int,
-                    delta002_call_strike: int, atm_strike: int, dt: datetime) -> tuple[float, float, float, float, float]:
+    def get_prev_day_option_iv(self, vt_symbol: str, prev_iv_type: OptionPrevIvType, put_strike: int, call_strike: int,
+                    delta002_call_strike: int, atm_strike: int, dt: datetime) -> tuple[float, float, float, float]:
         op_month = vt_symbol.split('.')[0]
         main_engine = self._manager.main_engine
         option_engine: OptionEngine | None = main_engine.get_engine(OPTION_APP_NAME)
 
         if option_engine:
-            delta002_p_iv, p_iv, c_iv, delta002_c_iv, a_iv = option_engine.get_prev_day_option_iv(
+            _delta002_p_iv, p_iv, c_iv, delta002_c_iv, a_iv = option_engine.get_prev_day_option_iv(
                 op_month,
                 prev_iv_type,
-                delta002_p_strike,
+                0,
                 put_strike,
                 call_strike,
                 delta002_call_strike,
                 atm_strike,
                 dt
             )
-            return delta002_p_iv, p_iv, c_iv, delta002_c_iv, a_iv
+            return p_iv, c_iv, delta002_c_iv, a_iv
         else:
-            return 0.0, 0.0, 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
 
     def get_prev_day_n225_vi(self, dt: datetime) -> float:
         main_engine = self._manager.main_engine
@@ -97,49 +94,35 @@ class IvItem(ChartItem):
             return 0.0
 
 
-    def get_impv_values(self, ix: int) -> tuple[float, float, float, float, float, float, float]:
+    def get_impv_values(self, ix: int) -> tuple[float, float, float, float, float, float]:
         """"""
         if ix < 0:
-            return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         # When initialize, calculate all rsi value
         if not self.eris_p_iv:
             dt: datetime = datetime.now(DB_TZ)
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
-                # find 2025-11-20 03:39:00 bar to test
-                # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
-                #     print("debug it")
                 atm_price = round(bar.close_price / 1000) * 1000
-                prev_002_p_iv, prev_p_iv, prev_c_iv, prev_002_c_iv, prev_a_iv = self.get_prev_day_option_iv(
+                prev_p_iv, prev_c_iv, prev_002_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                     bar.vt_symbol,
                     self.prev_iv_type,
-                    # bar.eris_p_strike,
-                    # bar.eris_c_strike,
-                    bar.delta002_p_strike,
-                    bar.delta012_p_strike,
-                    bar.delta022_c_strike,
+                    bar.eris_p_strike,
+                    bar.eris_c_strike,
                     bar.delta002_c_strike,
                     atm_price,
                     dt
                 )
                 prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
-                iv = bar.delta002_p_iv
-                self.delta002_p_iv[n] = (iv - prev_002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_002_p_iv != 0 else 0
-                self.delta002_p_strike[n] = bar.delta002_p_strike
-
-                # iv = bar.eris_p_iv
-                iv = bar.delta012_p_iv
+                iv = bar.eris_p_iv
                 self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
-                # self.eris_p_strike[n] = bar.eris_p_strike
-                self.eris_p_strike[n] = bar.delta012_p_strike
+                self.eris_p_strike[n] = bar.eris_p_strike
 
-                # iv = bar.eris_c_iv
-                iv = bar.delta022_c_iv
+                iv = bar.eris_c_iv
                 self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
-                # self.eris_c_strike[n] = bar.eris_c_strike
-                self.eris_c_strike[n] = bar.delta022_c_strike
+                self.eris_c_strike[n] = bar.eris_c_strike
 
                 iv = bar.delta002_c_iv
                 self.delta002_c_iv[n] = (iv - prev_002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_002_c_iv != 0 else 0
@@ -148,6 +131,7 @@ class IvItem(ChartItem):
                 iv = bar.atm_iv
                 self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
                 self.eris_a_strike[n] = atm_price
+
                 # atm_iv 年率から日率に変換
                 self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
@@ -162,40 +146,26 @@ class IvItem(ChartItem):
         if new_bar or update:
             # Else calculate new value
             bar = self._manager.get_bar(ix)
-            # find 2025-11-20 03:39:00 bar to test
-            # if bar.datetime == datetime(2025, 11, 20, 22, 30, 0, tzinfo=bar.datetime.tzinfo):
-            #     print("debug it")
             atm_price = round(bar.close_price / 1000) * 1000
             dt: datetime = datetime.now(DB_TZ)
-            prev_002_p_iv, prev_p_iv, prev_c_iv, prev_002_c_iv, prev_a_iv = self.get_prev_day_option_iv(
+            prev_p_iv, prev_c_iv, prev_002_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
                 self.prev_iv_type,
-                # bar.eris_p_strike,
-                # bar.eris_c_strike,
-                bar.delta002_p_strike,
-                bar.delta012_p_strike,
-                bar.delta022_c_strike,
+                bar.eris_p_strike,
+                bar.eris_c_strike,
                 bar.delta002_c_strike,
                 atm_price,
                 dt
             )
             prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
-            iv = bar.delta002_p_iv
-            self.delta002_p_iv[ix] = (iv - prev_002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_002_p_iv != 0 else 0
-            self.delta002_p_strike[ix] = bar.delta002_p_strike
-
-            # iv = bar.eris_p_iv
-            iv = bar.delta012_p_iv
+            iv = bar.eris_p_iv
             self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
-            # self.eris_p_strike[ix] = bar.eris_p_strike
-            self.eris_p_strike[ix] = bar.delta012_p_strike
+            self.eris_p_strike[ix] = bar.eris_p_strike
 
-            # iv = bar.eris_c_iv
-            iv = bar.delta022_c_iv
+            iv = bar.eris_c_iv
             self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
-            # self.eris_c_strike[ix] = bar.eris_c_strike
-            self.eris_c_strike[ix] = bar.delta022_c_strike
+            self.eris_c_strike[ix] = bar.eris_c_strike
 
             iv = bar.delta002_c_iv
             self.delta002_c_iv[ix] = (iv - prev_002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_002_c_iv != 0 else 0
@@ -204,6 +174,7 @@ class IvItem(ChartItem):
             iv = bar.atm_iv
             self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
             self.eris_a_strike[ix] = atm_price
+
             # atm_iv 年率から日率に変換
             self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
@@ -212,16 +183,15 @@ class IvItem(ChartItem):
 
         # Return if already calcualted
         if ix in self.eris_p_iv:
-            return self.delta002_p_iv[ix], self.eris_p_iv[ix], self.eris_c_iv[ix], self.delta002_c_iv[ix], self.atm_iv[ix], self.atm_iv_daily[ix], self.n225_vi[ix]
+            return self.eris_p_iv[ix], self.eris_c_iv[ix], self.delta002_c_iv[ix], self.atm_iv[ix], self.atm_iv_daily[ix], self.n225_vi[ix]
 
-        return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
         # Create objects
-        delta002_p_iv, p_iv, c_iv, delta002_c_iv, atm_iv, atm_iv_daily, n225_vi = self.get_impv_values(ix)
+        p_iv, c_iv, delta002_c_iv, atm_iv, atm_iv_daily, n225_vi = self.get_impv_values(ix)
 
         draw_items = [
-            IvDrawItem(value=delta002_p_iv, pen=self.d002_p_pen, brush=self.d002_p_brush),
             IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
             IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
             IvDrawItem(value=delta002_c_iv, pen=self.d002_pen, brush=self.d002_brush),
@@ -361,10 +331,6 @@ class IvItem(ChartItem):
         if buf:
             return buf
 
-        delta002_p_iv_values = list(self.delta002_p_iv.values())[min_ix:max_ix + 1]
-        delta002_p_iv_min = min(delta002_p_iv_values)
-        delta002_p_iv_max = max(delta002_p_iv_values)
-
         p_iv_values = list(self.eris_p_iv.values())[min_ix:max_ix + 1]
         p_iv_min = min(p_iv_values)
         p_iv_max = max(p_iv_values)
@@ -389,8 +355,8 @@ class IvItem(ChartItem):
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
-        min_iv = min(delta002_p_iv_min, p_iv_min, c_iv_min,  delta002_c_iv_min, atm_iv_daily_min, n225_vi_min)
-        max_iv = max(delta002_p_iv_max, p_iv_max, c_iv_max,  delta002_c_iv_max, atm_iv_daily_max, n225_vi_max)
+        min_iv = min(p_iv_min, c_iv_min, delta002_c_iv_min, atm_iv_daily_min, n225_vi_min)
+        max_iv = max(p_iv_max, c_iv_max, delta002_c_iv_max, atm_iv_daily_max, n225_vi_max)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
@@ -398,32 +364,27 @@ class IvItem(ChartItem):
     def get_info_text(self, ix: int) -> str:
         """"""
         if ix in self.eris_p_iv:
-            p_002_strike = self.delta002_p_strike[ix]
             a_strike = self.eris_a_strike[ix]
             p_strike = self.eris_p_strike[ix]
             c_strike = self.eris_c_strike[ix]
             c_002_strike = self.delta002_c_strike[ix]
             a_iv    = self.atm_iv[ix]
             n225_vi = self.n225_vi[ix]
-            p_002_iv = self.delta002_p_iv[ix]
             p_iv = self.eris_p_iv[ix]
             c_iv = self.eris_c_iv[ix]
             c_002_iv = self.delta002_c_iv[ix]
 
-            p_002_strike = int(p_002_strike) if p_002_strike is not None else "--------"
             p_strike = int(p_strike) if p_strike is not None else "--------"
             c_strike = int(c_strike) if c_strike is not None else "--------"
             c_002_strike = int(c_002_strike) if c_002_strike is not None else "--------"
 
             n225     = f"225VI青({a_strike}) {n225_vi:.2f}%"
-            put_002  = f"P0.02紫({p_002_strike}) {p_002_iv:.2f}%"
-            put      = f"P0.12水({p_strike}) {p_iv:.2f}%"
+            put      = f"P0.10水({p_strike}) {p_iv:.2f}%"
             atm      = f"A0.50緑({a_strike}) {a_iv:.2f}%"
-            call     = f"C0.22赤({c_strike}) {c_iv:.2f}%"
+            call     = f"C0.10赤({c_strike}) {c_iv:.2f}%"
             call_002 = f"C0.02黄({c_002_strike}) {c_002_iv:.2f}%"
             words: list = [
                 n225,
-                put_002,
                 put,
                 atm,
                 call,
