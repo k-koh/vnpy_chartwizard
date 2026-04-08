@@ -32,15 +32,15 @@ class IvItem(ChartItem):
         self.base_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)
 
         self.bid_pen: QtGui.QPen = pg.mkPen(color=RED_COLOR, width=PEN_WIDTH)
-        self.d002_pen: QtGui.QPen = pg.mkPen(color=YELLOW_COLOR, width=PEN_WIDTH)
+        self.d002_pen: QtGui.QPen = pg.mkPen(color=SPRING_GREEN_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
-        self.atm_pen: QtGui.QPen = pg.mkPen(color=SPRING_GREEN_COLOR, width=PEN_WIDTH)
+        self.atm_pen: QtGui.QPen = pg.mkPen(color=YELLOW_COLOR, width=PEN_WIDTH)
         self.n225_vi_pen: QtGui.QPen = pg.mkPen(color=BLUE_COLOR, width=PEN_WIDTH)  # Orange
 
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=RED_COLOR)
-        self.d002_brush: QtGui.QBrush = pg.mkBrush(color=YELLOW_COLOR)
+        self.d002_brush: QtGui.QBrush = pg.mkBrush(color=SPRING_GREEN_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=DOWN_COLOR)
-        self.atm_brush: QtGui.QBrush = pg.mkBrush(color=SPRING_GREEN_COLOR)
+        self.atm_brush: QtGui.QBrush = pg.mkBrush(color=YELLOW_COLOR)
         self.n225_vi_brush: QtGui.QBrush = pg.mkBrush(color=BLUE_COLOR)  # Orange
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
@@ -194,9 +194,9 @@ class IvItem(ChartItem):
         draw_items = [
             IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
             IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
-            IvDrawItem(value=delta002_c_iv, pen=self.d002_pen, brush=self.d002_brush),
-            # IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
-            IvDrawItem(value=n225_vi, pen=self.n225_vi_pen, brush=self.n225_vi_brush),
+            # IvDrawItem(value=delta002_c_iv, pen=self.d002_pen, brush=self.d002_brush),
+            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+            # IvDrawItem(value=n225_vi, pen=self.n225_vi_pen, brush=self.n225_vi_brush),
         ]
 
         draw_items.sort(key=lambda item: abs(item.value), reverse=True)
@@ -339,24 +339,24 @@ class IvItem(ChartItem):
         c_iv_min = min(c_iv_values)
         c_iv_max = max(c_iv_values)
 
-        delta002_c_iv_values = list(self.delta002_c_iv.values())[min_ix:max_ix + 1]
-        delta002_c_iv_min = min(delta002_c_iv_values)
-        delta002_c_iv_max = max(delta002_c_iv_values)
+        # delta002_c_iv_values = list(self.delta002_c_iv.values())[min_ix:max_ix + 1]
+        # delta002_c_iv_min = min(delta002_c_iv_values)
+        # delta002_c_iv_max = max(delta002_c_iv_values)
 
-        # atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1]
-        # atm_iv_min = min(atm_iv_values)
-        # atm_iv_max = max(atm_iv_values)
+        atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1]
+        atm_iv_min = min(atm_iv_values)
+        atm_iv_max = max(atm_iv_values)
 
-        n225_vi_values = list(self.n225_vi.values())[min_ix:max_ix + 1]
-        n225_vi_min = min(n225_vi_values)
-        n225_vi_max = max(n225_vi_values)
+        # n225_vi_values = list(self.n225_vi.values())[min_ix:max_ix + 1]
+        # n225_vi_min = min(n225_vi_values)
+        # n225_vi_max = max(n225_vi_values)
 
         atm_iv_daily_values = list(self.atm_iv_daily.values())[min_ix:max_ix + 1]
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
-        min_iv = min(p_iv_min, c_iv_min, delta002_c_iv_min, atm_iv_daily_min, n225_vi_min)
-        max_iv = max(p_iv_max, c_iv_max, delta002_c_iv_max, atm_iv_daily_max, n225_vi_max)
+        min_iv = min(p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min)
+        max_iv = max(p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
