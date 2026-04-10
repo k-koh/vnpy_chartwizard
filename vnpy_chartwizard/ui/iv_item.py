@@ -195,7 +195,7 @@ class IvItem(ChartItem):
             IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
             IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
             # IvDrawItem(value=delta002_c_iv, pen=self.d002_pen, brush=self.d002_brush),
-            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+            # IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
             # IvDrawItem(value=n225_vi, pen=self.n225_vi_pen, brush=self.n225_vi_brush),
         ]
 
@@ -343,9 +343,9 @@ class IvItem(ChartItem):
         # delta002_c_iv_min = min(delta002_c_iv_values)
         # delta002_c_iv_max = max(delta002_c_iv_values)
 
-        atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1]
-        atm_iv_min = min(atm_iv_values)
-        atm_iv_max = max(atm_iv_values)
+        # atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1]
+        # atm_iv_min = min(atm_iv_values)
+        # atm_iv_max = max(atm_iv_values)
 
         # n225_vi_values = list(self.n225_vi.values())[min_ix:max_ix + 1]
         # n225_vi_min = min(n225_vi_values)
@@ -355,8 +355,8 @@ class IvItem(ChartItem):
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
-        min_iv = min(p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min)
-        max_iv = max(p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max)
+        min_iv = min(p_iv_min, c_iv_min, atm_iv_daily_min)
+        max_iv = max(p_iv_max, c_iv_max, atm_iv_daily_max)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
@@ -378,17 +378,17 @@ class IvItem(ChartItem):
             c_strike = int(c_strike) if c_strike is not None else "--------"
             c_002_strike = int(c_002_strike) if c_002_strike is not None else "--------"
 
-            n225     = f"225VI青({a_strike}) {n225_vi:.2f}%"
+            # n225     = f"225VI青({a_strike}) {n225_vi:.2f}%"
             put      = f"P0.10水({p_strike}) {p_iv:.2f}%"
-            atm      = f"A0.50緑({a_strike}) {a_iv:.2f}%"
+            # atm      = f"A0.50緑({a_strike}) {a_iv:.2f}%"
             call     = f"C0.10赤({c_strike}) {c_iv:.2f}%"
-            call_002 = f"C0.02黄({c_002_strike}) {c_002_iv:.2f}%"
+            # call_002 = f"C0.02黄({c_002_strike}) {c_002_iv:.2f}%"
             words: list = [
-                n225,
+                # n225,
                 put,
-                atm,
+                # atm,
                 call,
-                call_002
+                # call_002
             ]
             text: str = "\n".join(words)
         else:

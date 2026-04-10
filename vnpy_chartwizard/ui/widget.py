@@ -146,7 +146,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart: ChartWidget = CustomChartWidget(self.main_engine)
         chart.add_plot("candle", hide_x_axis=True)
         chart.add_plot("otm_strike_iv", maximum_height=300, hide_x_axis=True)
-        chart.add_plot("volume", maximum_height=100)
+        chart.add_plot("volume", maximum_height=150)
 
         chart.add_item(CandleItem, "candle", "candle")
         chart.add_item(IvItem, "otm_strike_iv", "otm_strike_iv")
