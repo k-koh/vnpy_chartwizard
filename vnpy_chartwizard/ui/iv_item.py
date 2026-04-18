@@ -50,12 +50,19 @@ class IvItem(ChartItem):
         self.eris_c_strike: Dict[int, int] = {}
         self.eris_a_strike: Dict[int, int] = {}
 
+        self.eris_p_delta: Dict[int, float] = {}
+        self.eris_c_delta: Dict[int, float] = {}
+
         self.eris_p_iv: Dict[int, float] = {}
         self.eris_c_iv: Dict[int, float] = {}
         self.atm_iv: Dict[int, float] = {}
         self.n225_vi: Dict[int, float] = {}
         # atm_iv 年率から日率に変換
         self.atm_iv_daily: Dict[int, float] = {}
+
+        # Retry tracking: if init produced all-zero values (prev-day data
+        # not yet loaded), allow re-init on next access
+        self._last_init_attempt: datetime | None = None
 
 
     def get_prev_day_option_iv(self, vt_symbol: str, prev_iv_type: OptionPrevIvType, put_strike: int, call_strike: int,
@@ -88,13 +95,62 @@ class IvItem(ChartItem):
             return 0.0
 
 
+    def _should_reinit(self) -> bool:
+        """Check if cache should be cleared and re-initialized."""
+        if not self.eris_p_iv:
+            return False
+        # If majority of values are zero, data was likely incomplete at init
+        values = list(self.eris_p_iv.values())
+        if not values:
+            return False
+        zero_count = sum(1 for v in values if v == 0)
+        if zero_count / len(values) < 0.5:
+            return False  # enough non-zero values, don't reinit
+        # Rate-limit retries
+        now_dt = datetime.now(DB_TZ)
+        if self._last_init_attempt is not None:
+            if (now_dt - self._last_init_attempt).total_seconds() < 5:
+                return False
+        return True
+
+    def _clear_cache(self) -> None:
+        """Clear all cached IV dicts to force re-initialization."""
+        self.eris_p_iv.clear()
+        self.eris_c_iv.clear()
+        self.eris_p_strike.clear()
+        self.eris_c_strike.clear()
+        self.eris_p_delta.clear()
+        self.eris_c_delta.clear()
+        self.eris_a_strike.clear()
+        self.atm_iv.clear()
+        self.atm_iv_daily.clear()
+        self.n225_vi.clear()
+        self.iv_ranges.clear()
+
+    def update_bar(self, bar: BarData) -> None:
+        """Override to clear stale zero-valued cache when new bar arrives."""
+        if self._should_reinit():
+            self._clear_cache()
+        super().update_bar(bar)
+
+    def update_history(self, history: list[BarData]) -> None:
+        """Override to clear cache when history is reloaded."""
+        self._clear_cache()
+        super().update_history(history)
+
     def get_impv_values(self, ix: int) -> tuple[float, float, float, float, float]:
         """"""
         if ix < 0:
             return 0.0, 0.0, 0.0, 0.0, 0.0
 
+        # Retry init if previous attempt produced mostly zero values
+        # (prev-day option data or bar eris data may not have been ready yet)
+        if self._should_reinit():
+            self._clear_cache()
+
         # When initialize, calculate all rsi value
         if not self.eris_p_iv:
+            self._last_init_attempt = datetime.now(DB_TZ)
             dt: datetime = datetime.now(DB_TZ)
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
@@ -112,10 +168,12 @@ class IvItem(ChartItem):
                 iv = bar.eris_p_iv
                 self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
                 self.eris_p_strike[n] = bar.eris_p_strike
+                self.eris_p_delta[n] = bar.eris_p_delta
 
                 iv = bar.eris_c_iv
                 self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
                 self.eris_c_strike[n] = bar.eris_c_strike
+                self.eris_c_delta[n] = bar.eris_c_delta
 
                 iv = bar.atm_iv
                 self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
@@ -150,10 +208,12 @@ class IvItem(ChartItem):
             iv = bar.eris_p_iv
             self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
             self.eris_p_strike[ix] = bar.eris_p_strike
+            self.eris_p_delta[ix] = bar.eris_p_delta
 
             iv = bar.eris_c_iv
             self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
             self.eris_c_strike[ix] = bar.eris_c_strike
+            self.eris_c_delta[ix] = bar.eris_c_delta
 
             iv = bar.atm_iv
             self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
@@ -348,12 +408,17 @@ class IvItem(ChartItem):
             c_strike = self.eris_c_strike[ix]
             p_iv = self.eris_p_iv[ix]
             c_iv = self.eris_c_iv[ix]
+            p_delta = self.eris_p_delta.get(ix)
+            c_delta = self.eris_c_delta.get(ix)
 
             p_strike = int(p_strike) if p_strike is not None else "--------"
             c_strike = int(c_strike) if c_strike is not None else "--------"
 
-            put      = f"P0.10水({p_strike}) {p_iv:.2f}%"
-            call     = f"C0.10赤({c_strike}) {c_iv:.2f}%"
+            p_delta_str = f"{p_delta:.2f}" if p_delta else "----"
+            c_delta_str = f"{c_delta:.2f}" if c_delta else "----"
+
+            put      = f"P{p_delta_str}水({p_strike}) {p_iv:.2f}%"
+            call     = f"C{c_delta_str}赤({c_strike}) {c_iv:.2f}%"
             words: list = [
                 put,
                 call,
@@ -370,6 +435,8 @@ class IvItem(ChartItem):
         """
         self.eris_p_iv.clear()
         self.eris_c_iv.clear()
+        self.eris_p_delta.clear()
+        self.eris_c_delta.clear()
         self.atm_iv.clear()
         self.iv_ranges.clear()
         super().clear_all()
