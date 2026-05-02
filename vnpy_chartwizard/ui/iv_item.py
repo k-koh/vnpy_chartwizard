@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import pyqtgraph as pg
 
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, YELLOW_COLOR, WHITE_COLOR, BLUE_COLOR, \
-    GREEN_COLOR, ORANGE_COLOR, RED_COLOR
+    GREEN_COLOR, ORANGE_COLOR, RED_COLOR, MAGENTA_COLOR, SPRING_GREEN_COLOR
 from vnpy.chart.item import ChartItem
 from vnpy.trader.constant import OptionPrevIvType
 from vnpy.trader.database import DB_TZ
@@ -38,8 +38,14 @@ class IvItem(ChartItem):
 
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=RED_COLOR)
         self.ask_brush: QtGui.QBrush = pg.mkBrush(color=DOWN_COLOR)
-        self.atm_brush: QtGui.QBrush = pg.mkBrush(color=YELLOW_COLOR)
+        self.atm_brush: QtGui.QBrush = pg.mkBrush(color=BLUE_COLOR)
         self.n225_vi_brush: QtGui.QBrush = pg.mkBrush(color=BLUE_COLOR)  # Orange
+
+        # delta 0.02 pens/brushes — distinct hues so they stand out from eris bars
+        self.delta002_p_pen: QtGui.QPen = pg.mkPen(color=MAGENTA_COLOR, width=PEN_WIDTH)
+        self.delta002_c_pen: QtGui.QPen = pg.mkPen(color=ORANGE_COLOR, width=PEN_WIDTH)
+        self.delta002_p_brush: QtGui.QBrush = pg.mkBrush(color=MAGENTA_COLOR)
+        self.delta002_c_brush: QtGui.QBrush = pg.mkBrush(color=ORANGE_COLOR)
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
@@ -55,6 +61,17 @@ class IvItem(ChartItem):
 
         self.eris_p_iv: Dict[int, float] = {}
         self.eris_c_iv: Dict[int, float] = {}
+
+        # Delta 0.02 IV data
+        self.delta002_p_strike: Dict[int, int] = {}
+        self.delta002_c_strike: Dict[int, int] = {}
+
+        self.delta002_p_delta: Dict[int, float] = {}
+        self.delta002_c_delta: Dict[int, float] = {}
+
+        self.delta002_p_iv: Dict[int, float] = {}
+        self.delta002_c_iv: Dict[int, float] = {}
+
         self.atm_iv: Dict[int, float] = {}
         self.n225_vi: Dict[int, float] = {}
         # atm_iv 年率から日率に変換
@@ -122,6 +139,12 @@ class IvItem(ChartItem):
         self.eris_p_delta.clear()
         self.eris_c_delta.clear()
         self.eris_a_strike.clear()
+        self.delta002_p_iv.clear()
+        self.delta002_c_iv.clear()
+        self.delta002_p_strike.clear()
+        self.delta002_c_strike.clear()
+        self.delta002_p_delta.clear()
+        self.delta002_c_delta.clear()
         self.atm_iv.clear()
         self.atm_iv_daily.clear()
         self.n225_vi.clear()
@@ -163,6 +186,14 @@ class IvItem(ChartItem):
                     atm_price,
                     dt
                 )
+                prev_d002_p_iv, prev_d002_c_iv, _ = self.get_prev_day_option_iv(
+                    bar.vt_symbol,
+                    self.prev_iv_type,
+                    bar.delta002_p_strike,
+                    bar.delta002_c_strike,
+                    atm_price,
+                    dt
+                )
                 prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
                 iv = bar.eris_p_iv
@@ -174,6 +205,16 @@ class IvItem(ChartItem):
                 self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
                 self.eris_c_strike[n] = bar.eris_c_strike
                 self.eris_c_delta[n] = bar.eris_c_delta
+
+                iv = bar.delta002_p_iv
+                self.delta002_p_iv[n] = (iv - prev_d002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_p_iv != 0 else 0
+                self.delta002_p_strike[n] = bar.delta002_p_strike
+                self.delta002_p_delta[n] = bar.delta002_p_delta
+
+                iv = bar.delta002_c_iv
+                self.delta002_c_iv[n] = (iv - prev_d002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_c_iv != 0 else 0
+                self.delta002_c_strike[n] = bar.delta002_c_strike
+                self.delta002_c_delta[n] = bar.delta002_c_delta
 
                 iv = bar.atm_iv
                 self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
@@ -203,6 +244,14 @@ class IvItem(ChartItem):
                 atm_price,
                 dt
             )
+            prev_d002_p_iv, prev_d002_c_iv, _ = self.get_prev_day_option_iv(
+                bar.vt_symbol,
+                self.prev_iv_type,
+                bar.delta002_p_strike,
+                bar.delta002_c_strike,
+                atm_price,
+                dt
+            )
             prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
             iv = bar.eris_p_iv
@@ -214,6 +263,16 @@ class IvItem(ChartItem):
             self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
             self.eris_c_strike[ix] = bar.eris_c_strike
             self.eris_c_delta[ix] = bar.eris_c_delta
+
+            iv = bar.delta002_p_iv
+            self.delta002_p_iv[ix] = (iv - prev_d002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_p_iv != 0 else 0
+            self.delta002_p_strike[ix] = bar.delta002_p_strike
+            self.delta002_p_delta[ix] = bar.delta002_p_delta
+
+            iv = bar.delta002_c_iv
+            self.delta002_c_iv[ix] = (iv - prev_d002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_c_iv != 0 else 0
+            self.delta002_c_strike[ix] = bar.delta002_c_strike
+            self.delta002_c_delta[ix] = bar.delta002_c_delta
 
             iv = bar.atm_iv
             self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
@@ -234,11 +293,15 @@ class IvItem(ChartItem):
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
         # Create objects
         p_iv, c_iv, atm_iv, atm_iv_daily, n225_vi = self.get_impv_values(ix)
+        d002_p_iv = self.delta002_p_iv.get(ix, 0.0)
+        d002_c_iv = self.delta002_c_iv.get(ix, 0.0)
 
         draw_items = [
             IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
             IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
-            # IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+            IvDrawItem(value=d002_p_iv, pen=self.delta002_p_pen, brush=self.delta002_p_brush),
+            IvDrawItem(value=d002_c_iv, pen=self.delta002_c_pen, brush=self.delta002_c_brush),
+            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
             # IvDrawItem(value=n225_vi, pen=self.n225_vi_pen, brush=self.n225_vi_brush),
         ]
 
@@ -269,8 +332,8 @@ class IvItem(ChartItem):
         end_point = QtCore.QPointF(ix + BAR_WIDTH, -atm_iv_daily * 0.5)
         painter.drawLine(start_point, end_point)
 
-        min_iv_val = min(n225_vi, atm_iv, p_iv, c_iv)
-        max_iv_val = max(n225_vi, atm_iv, p_iv, c_iv)
+        min_iv_val = min(n225_vi, atm_iv, p_iv, c_iv, d002_p_iv, d002_c_iv)
+        max_iv_val = max(n225_vi, atm_iv, p_iv, c_iv, d002_p_iv, d002_c_iv)
         if max_iv_val > atm_iv_daily * 0.8:
             # upper line
             start_point = QtCore.QPointF(ix - BAR_WIDTH, atm_iv_daily)
@@ -382,10 +445,18 @@ class IvItem(ChartItem):
         c_iv_min = min(c_iv_values)
         c_iv_max = max(c_iv_values)
 
+        d002_p_values = list(self.delta002_p_iv.values())[min_ix:max_ix + 1] or [0.0]
+        d002_p_min = min(d002_p_values)
+        d002_p_max = max(d002_p_values)
 
-        # atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1]
-        # atm_iv_min = min(atm_iv_values)
-        # atm_iv_max = max(atm_iv_values)
+        d002_c_values = list(self.delta002_c_iv.values())[min_ix:max_ix + 1] or [0.0]
+        d002_c_min = min(d002_c_values)
+        d002_c_max = max(d002_c_values)
+
+
+        atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1] or [0.0]
+        atm_iv_min = min(atm_iv_values)
+        atm_iv_max = max(atm_iv_values)
 
         # n225_vi_values = list(self.n225_vi.values())[min_ix:max_ix + 1]
         # n225_vi_min = min(n225_vi_values)
@@ -395,8 +466,8 @@ class IvItem(ChartItem):
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
-        min_iv = min(p_iv_min, c_iv_min, atm_iv_daily_min)
-        max_iv = max(p_iv_max, c_iv_max, atm_iv_daily_max)
+        min_iv = min(p_iv_min, c_iv_min, d002_p_min, d002_c_min, atm_iv_min, atm_iv_daily_min)
+        max_iv = max(p_iv_max, c_iv_max, d002_p_max, d002_c_max, atm_iv_max, atm_iv_daily_max)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
@@ -414,15 +485,41 @@ class IvItem(ChartItem):
             p_strike = int(p_strike) if p_strike is not None else "--------"
             c_strike = int(c_strike) if c_strike is not None else "--------"
 
-            p_delta_str = f"{p_delta:.2f}" if p_delta else "----"
-            c_delta_str = f"{c_delta:.2f}" if c_delta else "----"
+            p_delta_str = f"{p_delta:.3f}" if p_delta else "----"
+            c_delta_str = f"{c_delta:.3f}" if c_delta else "----"
 
             put      = f"P{p_delta_str}水({p_strike}) {p_iv:.2f}%"
             call     = f"C{c_delta_str}赤({c_strike}) {c_iv:.2f}%"
+
+
+            d002_p_strike = self.delta002_p_strike.get(ix)
+            d002_c_strike = self.delta002_c_strike.get(ix)
+            d002_p_iv = self.delta002_p_iv.get(ix, 0.0)
+            d002_c_iv = self.delta002_c_iv.get(ix, 0.0)
+            d002_p_delta = self.delta002_p_delta.get(ix)
+            d002_c_delta = self.delta002_c_delta.get(ix)
+
+            d002_p_strike_str = int(d002_p_strike) if d002_p_strike else "--------"
+            d002_c_strike_str = int(d002_c_strike) if d002_c_strike else "--------"
+            d002_p_delta_str = f"{d002_p_delta:.3f}" if d002_p_delta else "----"
+            d002_c_delta_str = f"{d002_c_delta:.3f}" if d002_c_delta else "----"
+
+            put002  = f"P{d002_p_delta_str}紫({d002_p_strike_str}) {d002_p_iv:.2f}%"
+            call002 = f"C{d002_c_delta_str}橙({d002_c_strike_str}) {d002_c_iv:.2f}%"
+
+            atm_iv = self.atm_iv.get(ix, 0.0)
+            atm_strike = self.eris_a_strike.get(ix)
+            atm_strike_str = int(atm_strike) if atm_strike is not None else "--------"
+            atm = f"ATM青({atm_strike_str}) {atm_iv:.2f}%"
+
             words: list = [
+                put002,
                 put,
+                atm,
                 call,
+                call002,
             ]
+
             text: str = "\n".join(words)
         else:
             text = "IV -"
@@ -437,6 +534,10 @@ class IvItem(ChartItem):
         self.eris_c_iv.clear()
         self.eris_p_delta.clear()
         self.eris_c_delta.clear()
+        self.delta002_p_iv.clear()
+        self.delta002_c_iv.clear()
+        self.delta002_p_delta.clear()
+        self.delta002_c_delta.clear()
         self.atm_iv.clear()
         self.iv_ranges.clear()
         super().clear_all()
