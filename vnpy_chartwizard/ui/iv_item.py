@@ -30,6 +30,7 @@ class IvItem(ChartItem):
         super().__init__(manager)
 
         self.base_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)
+        self.zero_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=1)
 
         self.bid_pen: QtGui.QPen = pg.mkPen(color=RED_COLOR, width=PEN_WIDTH)
         self.ask_pen: QtGui.QPen = pg.mkPen(color=DOWN_COLOR, width=PEN_WIDTH)
@@ -197,34 +198,34 @@ class IvItem(ChartItem):
                 prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
                 iv = bar.eris_p_iv
-                self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
+                self.eris_p_iv[n] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv else 0
                 self.eris_p_strike[n] = bar.eris_p_strike
                 self.eris_p_delta[n] = bar.eris_p_delta
 
                 iv = bar.eris_c_iv
-                self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
+                self.eris_c_iv[n] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv else 0
                 self.eris_c_strike[n] = bar.eris_c_strike
                 self.eris_c_delta[n] = bar.eris_c_delta
 
                 iv = bar.delta002_p_iv
-                self.delta002_p_iv[n] = (iv - prev_d002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_p_iv != 0 else 0
+                self.delta002_p_iv[n] = (iv - prev_d002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_p_iv else 0
                 self.delta002_p_strike[n] = bar.delta002_p_strike
                 self.delta002_p_delta[n] = bar.delta002_p_delta
 
                 iv = bar.delta002_c_iv
-                self.delta002_c_iv[n] = (iv - prev_d002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_c_iv != 0 else 0
+                self.delta002_c_iv[n] = (iv - prev_d002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_c_iv else 0
                 self.delta002_c_strike[n] = bar.delta002_c_strike
                 self.delta002_c_delta[n] = bar.delta002_c_delta
 
                 iv = bar.atm_iv
-                self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
+                self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv else 0
                 self.eris_a_strike[n] = atm_price
 
                 # atm_iv 年率から日率に変換
                 self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
                 iv = bar.n225_vi
-                self.n225_vi[n] = (iv - prev_n225_vi) if iv is not None and iv != 0 and prev_n225_vi != 0 else 0
+                self.n225_vi[n] = (iv - prev_n225_vi) if iv is not None and iv != 0 and prev_n225_vi else 0
 
         new_bar = True if ix not in self.eris_p_iv else False
         update = False
@@ -255,34 +256,34 @@ class IvItem(ChartItem):
             prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
             iv = bar.eris_p_iv
-            self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv != 0 else 0
+            self.eris_p_iv[ix] = (iv - prev_p_iv) * 100.0 if iv is not None and iv != 0 and prev_p_iv else 0
             self.eris_p_strike[ix] = bar.eris_p_strike
             self.eris_p_delta[ix] = bar.eris_p_delta
 
             iv = bar.eris_c_iv
-            self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv != 0 else 0
+            self.eris_c_iv[ix] = (iv - prev_c_iv) * 100.0 if iv is not None and iv != 0 and prev_c_iv else 0
             self.eris_c_strike[ix] = bar.eris_c_strike
             self.eris_c_delta[ix] = bar.eris_c_delta
 
             iv = bar.delta002_p_iv
-            self.delta002_p_iv[ix] = (iv - prev_d002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_p_iv != 0 else 0
+            self.delta002_p_iv[ix] = (iv - prev_d002_p_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_p_iv else 0
             self.delta002_p_strike[ix] = bar.delta002_p_strike
             self.delta002_p_delta[ix] = bar.delta002_p_delta
 
             iv = bar.delta002_c_iv
-            self.delta002_c_iv[ix] = (iv - prev_d002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_c_iv != 0 else 0
+            self.delta002_c_iv[ix] = (iv - prev_d002_c_iv) * 100.0 if iv is not None and iv != 0 and prev_d002_c_iv else 0
             self.delta002_c_strike[ix] = bar.delta002_c_strike
             self.delta002_c_delta[ix] = bar.delta002_c_delta
 
             iv = bar.atm_iv
-            self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv != 0 else 0
+            self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv else 0
             self.eris_a_strike[ix] = atm_price
 
             # atm_iv 年率から日率に変換
             self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
             iv = bar.n225_vi
-            self.n225_vi[ix] = (iv - prev_n225_vi) if iv is not None and iv != 0 and prev_n225_vi != 0 else 0
+            self.n225_vi[ix] = (iv - prev_n225_vi) if iv is not None and iv != 0 and prev_n225_vi else 0
 
         # Return if already calcualted
         if ix in self.eris_p_iv:
@@ -309,6 +310,14 @@ class IvItem(ChartItem):
 
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
+
+        # 0 baseline (drawn first so bars overlay it)
+        # Span the full unit slot so segments tile continuously across bars.
+        painter.setPen(self.zero_pen)
+        painter.drawLine(
+            QtCore.QPointF(ix - 0.5, 0),
+            QtCore.QPointF(ix + 0.5, 0),
+        )
 
         for item in draw_items:
             painter.setPen(item.pen)

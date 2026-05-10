@@ -1,5 +1,5 @@
 from copy import copy
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from tzlocal import get_localzone_name
 
 import pyqtgraph as pg
@@ -107,8 +107,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         self.bgs: dict[str, BarGenerator] = {}
         self.charts: dict[str, ChartWidget] = {}
-        # set bar window size same with query_history()
-        self.bar_window = 1 # need to change for other timeframes(5m, 15m, 1h, 1d)
 
         self.history_inited = False
         self.init_ui()
@@ -124,14 +122,51 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2605.JPX", "nk-2606.JPX", "nk-vin1.JPX"])
+        self.symbol_line.addItems(["nk-2606.JPX", "nk-2607.JPX", "nk-vin1.JPX"])
+
+        self.interval_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
+        self.interval_combo.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        self.interval_combo.setMinimumContentsLength(5)
+        self.interval_combo.setMinimumWidth(80)
+        self.interval_combo.view().setMinimumWidth(80)
+        for interval in [
+            Interval.MINUTE,
+            Interval.MINUTE3,
+            Interval.MINUTE5,
+            Interval.MINUTE6,
+            Interval.MINUTE10,
+            Interval.MINUTE15,
+            Interval.MINUTE20,
+            Interval.MINUTE30,
+            Interval.HOUR,
+            Interval.HOUR2,
+            Interval.HOUR4,
+            Interval.HOUR8,
+            Interval.DAILY,
+        ]:
+            self.interval_combo.addItem(interval.value, interval)
+        self.interval_combo.setCurrentIndex(
+            self.interval_combo.findData(Interval.MINUTE20)
+        )
+
+        self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
+        self.days_spin.setMinimum(3)
+        self.days_spin.setMaximum(365)
+        self.days_spin.setValue(45)
+        self.days_spin.setSuffix("日")
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
         self.button.clicked.connect(self.new_chart)
 
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
+        hbox.addWidget(QtWidgets.QLabel("期間"))
+        hbox.addWidget(self.days_spin)
         hbox.addWidget(QtWidgets.QLabel("銘柄コード"))
         hbox.addWidget(self.symbol_line)
+        hbox.addWidget(QtWidgets.QLabel("時間足"))
+        hbox.addWidget(self.interval_combo)
         hbox.addWidget(self.button)
         hbox.addStretch()
 
@@ -185,8 +220,17 @@ class ChartWizardWidget(QtWidgets.QWidget):
             if not contract:
                 return
 
+        interval: Interval = self.interval_combo.currentData()
+
         # Create new chart
-        self.bgs[vt_symbol] = BarGenerator(self.on_bar, self.bar_window, self.on_10min_bar)
+        bg_kwargs: dict = {
+            "on_bar": self.on_bar,
+            "on_window_bar": self.on_10min_bar,
+            "interval": interval,
+        }
+        if interval == Interval.DAILY:
+            bg_kwargs["daily_end"] = time(15, 45)
+        self.bgs[vt_symbol] = BarGenerator(**bg_kwargs)
         self.bgs[vt_symbol].main_engine = self.main_engine
 
         chart: ChartWidget = self.create_chart()
@@ -196,11 +240,11 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         # Query history data
         end: datetime = datetime.now(ZoneInfo(get_localzone_name()))
-        start: datetime = end - timedelta(days=14)
+        start: datetime = end - timedelta(days=self.days_spin.value())
 
         self.chart_engine.query_history(
             vt_symbol,
-            Interval.MINUTE,
+            interval,
             start,
             end
         )
@@ -225,7 +269,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
             chart: ChartWidget = self.charts[tick.vt_symbol]
             bar: BarData = None
-            if self.bar_window > 0:
+            if bg.window > 0:
                 # Update 1 minute bar into x minute window
                 bar = copy(bg.bar)
                 bg.update_bar(bar)
