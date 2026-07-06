@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Lock, Thread
 
 from vnpy.event import Event, EventEngine
@@ -47,7 +47,13 @@ def _bucket_dt(dt: datetime, interval: Interval) -> datetime | None:
             microsecond=0,
         )
     if interval == Interval.DAILY:
-        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Session-based daily bar: the night session (17:00+) belongs to the
+        # next day's session, so a session spans D-1 17:00 -> D ~15:40 and is
+        # labelled with the close day D at midnight. This matches the futures
+        # daily bars in the IV time-series chart and the live BarGenerator's
+        # 15:45 daily close.
+        session_dt: datetime = dt + timedelta(days=1) if dt.hour >= 17 else dt
+        return session_dt.replace(hour=0, minute=0, second=0, microsecond=0)
     return None
 
 

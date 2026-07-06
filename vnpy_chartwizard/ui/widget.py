@@ -108,7 +108,12 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.bgs: dict[str, BarGenerator] = {}
         self.charts: dict[str, ChartWidget] = {}
 
-        self.history_inited = False
+        # Track which symbols have finished loading history and seeding their
+        # BarGenerator. Must be per-symbol: a shared flag lets ticks for a
+        # newly-opened chart be processed before its history seeds the window
+        # bar, so the first tick creates the forming window with open=current
+        # price and the later history seed can no longer fix the open.
+        self.history_inited: set[str] = set()
         self.init_ui()
         self.register_event()
 
@@ -122,7 +127,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2606.JPX", "nk-2607.JPX", "nk-vin1.JPX"])
+        self.symbol_line.addItems(["nk-2607.JPX", "nk-2608.JPX", "nk-vin1.JPX"])
 
         self.interval_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
         self.interval_combo.setSizeAdjustPolicy(
@@ -144,11 +149,12 @@ class ChartWizardWidget(QtWidgets.QWidget):
             Interval.HOUR2,
             Interval.HOUR4,
             Interval.HOUR8,
+            Interval.HOUR12,
             Interval.DAILY,
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.MINUTE20)
+            self.interval_combo.findData(Interval.MINUTE30)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
@@ -204,6 +210,9 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.removeTab(index)
         self.charts.pop(vt_symbol)
         self.bgs.pop(vt_symbol)
+        # Drop init flag so a reopened chart re-seeds its window from history
+        # before live ticks are applied.
+        self.history_inited.discard(vt_symbol)
 
     def new_chart(self) -> None:
         """创建新的图表"""
@@ -264,15 +273,22 @@ class ChartWizardWidget(QtWidgets.QWidget):
         tick: TickData = event.data
         bg: BarGenerator | None = self.bgs.get(tick.vt_symbol, None)
 
-        if bg and self.history_inited:
+        if bg and tick.vt_symbol in self.history_inited:
             bg.update_tick(tick)
 
             chart: ChartWidget = self.charts[tick.vt_symbol]
             bar: BarData = None
-            if bg.window > 0:
-                # Update 1 minute bar into x minute window
+            # DAILY has no window value (not in the minute/hour maps) but must
+            # still be aggregated into the current daily bar; otherwise the raw
+            # 1-minute bar is pushed and a new bar is appended every minute.
+            if bg.window > 0 or bg.interval == Interval.DAILY:
+                # Update 1 minute bar into the current window / daily bar
                 bar = copy(bg.bar)
                 bg.update_bar(bar)
+                # The daily path clears window_bar when a bar completes at
+                # daily_end; nothing new to render for that tick.
+                if bg.window_bar is None:
+                    return
                 bar = copy(bg.window_bar)
             else:
                 bar = copy(bg.bar)
@@ -294,7 +310,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         bg: Optional[BarGenerator] = self.bgs.get(bar.vt_symbol, None)
         if bg:
             bg.update_bar(bar)
-        self.history_inited = True
+        self.history_inited.add(bar.vt_symbol)
 
         # Subscribe following data update
         contract: ContractData | None = self.main_engine.get_contract(bar.vt_symbol)
