@@ -127,7 +127,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2607.JPX", "nk-2608.JPX", "nk-vin1.JPX"])
+        self.symbol_line.addItems(["nk-2608.JPX", "nk-2609.JPX"])
 
         self.interval_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
         self.interval_combo.setSizeAdjustPolicy(
@@ -154,7 +154,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.MINUTE30)
+            self.interval_combo.findData(Interval.HOUR)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
