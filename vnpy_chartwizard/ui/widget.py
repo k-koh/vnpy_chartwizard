@@ -89,6 +89,22 @@ class CustomChartWidget(ChartWidget):
             y_range: tuple = item.get_y_range(min_ix, max_ix)
             view.setRange(yRange=y_range, padding=0.05)
 
+    # Small fixed right-side margin (in bars) so the latest-point value
+    # labels have a little room without a large empty gap.
+    RIGHT_MARGIN_BARS: int = 4
+
+    def move_to_right(self) -> None:
+        """Snap to the right but leave a small fixed margin for the labels."""
+        self._right_ix = self._manager.get_count() + self.RIGHT_MARGIN_BARS
+        self._update_x_range()
+
+    def _update_plot_limits(self) -> None:
+        """Allow the pan/zoom limit to include the small right-side margin."""
+        xmax: float = self._manager.get_count() + self.RIGHT_MARGIN_BARS
+        for item, plot in self._item_plot_map.items():
+            min_value, max_value = item.get_y_range()
+            plot.setLimits(xMin=-1, xMax=xmax, yMin=min_value, yMax=max_value)
+
 
 class ChartWizardWidget(QtWidgets.QWidget):
     """K线图表控件"""
@@ -166,6 +182,11 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
         self.button.clicked.connect(self.new_chart)
 
+        # Toggle the delta 0.02 (d002) put/call IV series on the IV subplot.
+        self.d002_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Δ0.02")
+        self.d002_check.setChecked(False)
+        self.d002_check.toggled.connect(self._on_d002_toggled)
+
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(QtWidgets.QLabel("期間"))
         hbox.addWidget(self.days_spin)
@@ -174,6 +195,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(QtWidgets.QLabel("時間足"))
         hbox.addWidget(self.interval_combo)
         hbox.addWidget(self.button)
+        hbox.addWidget(self.d002_check)
         hbox.addStretch()
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
@@ -195,9 +217,20 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         # set IvItem prev iv type
         chart._items["otm_strike_iv"].prev_iv_type = OptionPrevIvType.SAME_STRIKE
+        # apply the current Δ0.02 toggle state to the new chart's IvItem
+        chart._items["otm_strike_iv"].show_delta002 = self.d002_check.isChecked()
 
         chart.add_cursor()
         return chart
+
+    def _on_d002_toggled(self, checked: bool) -> None:
+        """Show/hide the Δ0.02 IV series on every open chart's IV subplot."""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.set_show_delta002(checked)
+            # Recompute the IV subplot y-range for the new visibility.
+            chart._update_y_range()
 
     def show(self) -> None:
         """最大化显示"""

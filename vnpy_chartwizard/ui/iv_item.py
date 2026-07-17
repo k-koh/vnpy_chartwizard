@@ -49,6 +49,14 @@ class IvItem(ChartItem):
 
         self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_STRIKE
 
+        # Whether the delta 0.02 (d002) put/call IV series are drawn and
+        # included in the y-range. Toggled from the chart toolbar checkbox.
+        self.show_delta002: bool = True
+
+        # Value labels drawn beside each series' latest point (pg.TextItem,
+        # created lazily once the item has a ViewBox).
+        self._value_labels: Dict[str, pg.TextItem] = {}
+
         # Eris IV data
         self.eris_p_strike: Dict[int, int] = {}
         self.eris_c_strike: Dict[int, int] = {}
@@ -294,37 +302,48 @@ class IvItem(ChartItem):
         d002_p_iv = self.delta002_p_iv.get(ix, 0.0)
         d002_c_iv = self.delta002_c_iv.get(ix, 0.0)
 
-        draw_items = [
-            IvDrawItem(value=p_iv, pen=self.ask_pen, brush=self.ask_brush),
-            IvDrawItem(value=c_iv, pen=self.bid_pen, brush=self.bid_brush),
-            IvDrawItem(value=d002_p_iv, pen=self.delta002_p_pen, brush=self.delta002_p_brush),
-            IvDrawItem(value=d002_c_iv, pen=self.delta002_c_pen, brush=self.delta002_c_brush),
-            IvDrawItem(value=atm_iv, pen=self.atm_pen, brush=self.atm_brush),
+        # Each series: (current value, previous-bar value, pen, brush). The
+        # previous value comes from the per-index cache so we can connect
+        # consecutive bars into a line.
+        series_points: list[tuple[float, float | None, QtGui.QPen, QtGui.QBrush]] = [
+            (p_iv, self.eris_p_iv.get(ix - 1), self.ask_pen, self.ask_brush),
+            (c_iv, self.eris_c_iv.get(ix - 1), self.bid_pen, self.bid_brush),
         ]
-
-        draw_items.sort(key=lambda item: abs(item.value), reverse=True)
+        if self.show_delta002:
+            series_points += [
+                (d002_p_iv, self.delta002_p_iv.get(ix - 1), self.delta002_p_pen, self.delta002_p_brush),
+                (d002_c_iv, self.delta002_c_iv.get(ix - 1), self.delta002_c_pen, self.delta002_c_brush),
+            ]
+        series_points.append(
+            (atm_iv, self.atm_iv.get(ix - 1), self.atm_pen, self.atm_brush)
+        )
 
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
 
-        # 0 baseline (drawn first so bars overlay it)
-        # Span the full unit slot so segments tile continuously across bars.
+        # 0 baseline
         painter.setPen(self.zero_pen)
         painter.drawLine(
             QtCore.QPointF(ix - 0.5, 0),
             QtCore.QPointF(ix + 0.5, 0),
         )
 
-        for item in draw_items:
-            painter.setPen(item.pen)
-            painter.setBrush(item.brush)
-            rect = QtCore.QRectF(
-                ix - BAR_WIDTH,
-                0,
-                BAR_WIDTH * 2,
-                item.value
-            )
-            painter.drawRect(rect)
+        # Draw each series as a circle marker at (ix, value), connected to the
+        # previous bar's point by a line (line chart with circle markers).
+        radius_x: float = BAR_WIDTH * 0.5
+        radius_y: float = BAR_WIDTH * 0.5
+        for value, prev_value, pen, brush in series_points:
+            # Connecting line from the previous bar's point
+            if prev_value is not None:
+                painter.setPen(pen)
+                painter.drawLine(
+                    QtCore.QPointF(ix - 1, prev_value),
+                    QtCore.QPointF(ix, value),
+                )
+            # Circle marker at the current point
+            painter.setPen(pen)
+            painter.setBrush(brush)
+            painter.drawEllipse(QtCore.QPointF(ix, value), radius_x, radius_y)
 
         # ATM daily upper line (these remain as before, they are horizontal)
         painter.setPen(self.base_pen)
@@ -337,8 +356,11 @@ class IvItem(ChartItem):
         end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, -atm_iv_daily * 0.5)
         painter.drawLine(start_point, end_point)
 
-        min_iv_val = min(n225_vi, atm_iv, p_iv, c_iv, d002_p_iv, d002_c_iv)
-        max_iv_val = max(n225_vi, atm_iv, p_iv, c_iv, d002_p_iv, d002_c_iv)
+        iv_vals: list[float] = [n225_vi, atm_iv, p_iv, c_iv]
+        if self.show_delta002:
+            iv_vals += [d002_p_iv, d002_c_iv]
+        min_iv_val = min(iv_vals)
+        max_iv_val = max(iv_vals)
         if max_iv_val > atm_iv_daily * 0.8:
             # upper line
             start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, atm_iv_daily * 1.0)
@@ -471,11 +493,67 @@ class IvItem(ChartItem):
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
-        min_iv = min(p_iv_min, c_iv_min, d002_p_min, d002_c_min, atm_iv_min, atm_iv_daily_min)
-        max_iv = max(p_iv_max, c_iv_max, d002_p_max, d002_c_max, atm_iv_max, atm_iv_daily_max)
+        min_candidates: list[float] = [p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min]
+        max_candidates: list[float] = [p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max]
+        if self.show_delta002:
+            min_candidates += [d002_p_min, d002_c_min]
+            max_candidates += [d002_c_max, d002_p_max]
+        min_iv = min(min_candidates)
+        max_iv = max(max_candidates)
 
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
+
+    def set_show_delta002(self, show: bool) -> None:
+        """Toggle the d002 series; clear caches so bars and y-range recompute."""
+        if self.show_delta002 == show:
+            return
+        self.show_delta002 = show
+        self.iv_ranges.clear()
+        # Invalidate cached bar pictures WITHOUT dropping the keys: the base
+        # paint loop indexes _bar_picutures[ix] and bounds max_ix by its len,
+        # so clearing the dict would blank the whole item.
+        self._bar_picutures = {ix: None for ix in self._bar_picutures}
+        self._item_picuture = None
+        self.update()
+
+    def paint(self, painter, opt, w) -> None:
+        """Draw the item, then (re)position the latest-point value labels."""
+        super().paint(painter, opt, w)
+        self._update_value_labels()
+
+    def _update_value_labels(self) -> None:
+        """Show each series' latest value as a text label beside its last point."""
+        vb = self.getViewBox()
+        if vb is None or not self.eris_p_iv:
+            return
+
+        last_ix: int = max(self.eris_p_iv.keys())
+        # (key, data dict, colour, short tag, visible)
+        specs: list[tuple[str, Dict[int, float], tuple, str, bool]] = [
+            ("eris_p", self.eris_p_iv, DOWN_COLOR, "P", True),
+            ("eris_c", self.eris_c_iv, RED_COLOR, "C", True),
+            ("atm", self.atm_iv, WHITE_COLOR, "A", True),
+            ("d002_p", self.delta002_p_iv, BLUE_COLOR, "P2", self.show_delta002),
+            ("d002_c", self.delta002_c_iv, YELLOW_COLOR, "C2", self.show_delta002),
+        ]
+
+        for key, data, color, tag, visible in specs:
+            label = self._value_labels.get(key)
+            value = data.get(last_ix)
+            if not visible or value is None:
+                if label is not None:
+                    label.hide()
+                continue
+            if label is None:
+                # Anchor (0, 0.5): left-center at the point → text sits to the
+                # right of (beside) the latest point.
+                label = pg.TextItem(color=color, anchor=(0, 0.5))
+                vb.addItem(label, ignoreBounds=True)
+                self._value_labels[key] = label
+            label.setText(f"{tag}{value:+.2f}")
+            label.setPos(last_ix, value)
+            label.show()
 
     def get_info_text(self, ix: int) -> str:
         """"""
