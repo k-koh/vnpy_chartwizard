@@ -330,8 +330,19 @@ class IvItem(ChartItem):
 
         # Draw each series as a circle marker at (ix, value), connected to the
         # previous bar's point by a line (line chart with circle markers).
-        radius_x: float = BAR_WIDTH * 0.5
-        radius_y: float = BAR_WIDTH * 0.5
+        # The x/y axes have very different data scales, so size the marker in
+        # PIXELS and convert to data units via the view's pixel-per-data ratio
+        # → it renders as a (small) circle, not a tall ellipse.
+        radius_px: float = 3.0
+        radius_x: float = BAR_WIDTH * 0.3
+        radius_y: float = BAR_WIDTH * 0.3
+        vb = self.getViewBox()
+        if vb is not None and vb.width() > 0 and vb.height() > 0:
+            (x0, x1), (y0, y1) = vb.viewRange()
+            x_span: float = (x1 - x0) or 1.0
+            y_span: float = (y1 - y0) or 1.0
+            radius_x = radius_px * x_span / vb.width()
+            radius_y = radius_px * y_span / vb.height()
         for value, prev_value, pen, brush in series_points:
             # Connecting line from the previous bar's point
             if prev_value is not None:
