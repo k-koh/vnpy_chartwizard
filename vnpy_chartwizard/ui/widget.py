@@ -20,6 +20,7 @@ from .rsi_item import RsiItem
 from .sma_item import SmaItem
 from .vqi_item import VqiItem
 from .iv_item import IvItem
+from .trend_item import TrendLineItem
 from ..engine import APP_NAME, EVENT_CHART_HISTORY, ChartWizardEngine
 
 class CustomChartWidget(ChartWidget):
@@ -192,6 +193,16 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.strike_roll_check.setChecked(True)
         self.strike_roll_check.toggled.connect(self._on_strike_roll_toggled)
 
+        # Auto pivot trend lines (support/resistance) on the candle chart.
+        self.trend_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("トレンドライン")
+        self.trend_check.setChecked(False)
+        self.trend_check.toggled.connect(self._on_trend_toggled)
+
+        # Linear-regression channel on the candle chart.
+        self.channel_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("チャネル")
+        self.channel_check.setChecked(False)
+        self.channel_check.toggled.connect(self._on_channel_toggled)
+
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(QtWidgets.QLabel("期間"))
         hbox.addWidget(self.days_spin)
@@ -202,6 +213,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.button)
         hbox.addWidget(self.d002_check)
         hbox.addWidget(self.strike_roll_check)
+        hbox.addWidget(self.trend_check)
+        hbox.addWidget(self.channel_check)
         hbox.addStretch()
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
@@ -218,6 +231,9 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart.add_plot("volume", maximum_height=100)
 
         chart.add_item(CandleItem, "candle", "candle")
+        # Trend-line overlay shares the candle plot (added after candle so it
+        # draws on top). Its y-range delegates to the candle item.
+        chart.add_item(TrendLineItem, "trend", "candle")
         chart.add_item(IvItem, "otm_strike_iv", "otm_strike_iv")
         chart.add_item(VolumeItem, "volume", "volume")
 
@@ -227,6 +243,11 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].show_delta002 = self.d002_check.isChecked()
         # apply the current strike-roll label toggle state
         chart._items["otm_strike_iv"].show_strike_roll = self.strike_roll_check.isChecked()
+        # wire the trend overlay: y-range delegation + current toggle states
+        trend_item = chart._items["trend"]
+        trend_item.candle_item = chart._items["candle"]
+        trend_item.show_trend = self.trend_check.isChecked()
+        trend_item.show_channel = self.channel_check.isChecked()
 
         chart.add_cursor()
         return chart
@@ -246,6 +267,20 @@ class ChartWizardWidget(QtWidgets.QWidget):
             item = chart._items.get("otm_strike_iv")
             if isinstance(item, IvItem):
                 item.set_show_strike_roll(checked)
+
+    def _on_trend_toggled(self, checked: bool) -> None:
+        """Show/hide the pivot trend lines on every open chart's candle plot."""
+        for chart in self.charts.values():
+            item = chart._items.get("trend")
+            if isinstance(item, TrendLineItem):
+                item.set_show_trend(checked)
+
+    def _on_channel_toggled(self, checked: bool) -> None:
+        """Show/hide the regression channel on every open chart's candle plot."""
+        for chart in self.charts.values():
+            item = chart._items.get("trend")
+            if isinstance(item, TrendLineItem):
+                item.set_show_channel(checked)
 
     def show(self) -> None:
         """最大化显示"""
