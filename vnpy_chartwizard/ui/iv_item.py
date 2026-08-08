@@ -53,9 +53,17 @@ class IvItem(ChartItem):
         # included in the y-range. Toggled from the chart toolbar checkbox.
         self.show_delta002: bool = True
 
+        # Whether to annotate strike-roll bars with a "prev|now" strike label
+        # (e.g. "55000|56000"). Toggled from the chart toolbar checkbox.
+        self.show_strike_roll: bool = False
+
         # Value labels drawn beside each series' latest point (pg.TextItem,
         # created lazily once the item has a ViewBox).
         self._value_labels: Dict[str, pg.TextItem] = {}
+
+        # Reusable pool of strike-roll labels (pg.TextItem), positioned at the
+        # visible roll bars each paint.
+        self._roll_labels: list[pg.TextItem] = []
 
         # Eris IV data
         self.eris_p_strike: Dict[int, int] = {}
@@ -302,20 +310,23 @@ class IvItem(ChartItem):
         d002_p_iv = self.delta002_p_iv.get(ix, 0.0)
         d002_c_iv = self.delta002_c_iv.get(ix, 0.0)
 
-        # Each series: (current value, previous-bar value, pen, brush). The
-        # previous value comes from the per-index cache so we can connect
-        # consecutive bars into a line.
-        series_points: list[tuple[float, float | None, QtGui.QPen, QtGui.QBrush]] = [
-            (p_iv, self.eris_p_iv.get(ix - 1), self.ask_pen, self.ask_brush),
-            (c_iv, self.eris_c_iv.get(ix - 1), self.bid_pen, self.bid_brush),
+        # Each series: (current value, previous-bar value, pen, brush, strike map).
+        # The previous value comes from the per-index cache so we can connect
+        # consecutive bars into a line. The strike map lets us detect a strike
+        # "roll": when this bar's reference strike differs from the previous
+        # bar's, the same-strike day-over-day diff is comparing a DIFFERENT
+        # strike, so the jump is not a genuine IV move — we flag it (see below).
+        series_points: list[tuple[float, float | None, QtGui.QPen, QtGui.QBrush, Dict[int, int]]] = [
+            (p_iv, self.eris_p_iv.get(ix - 1), self.ask_pen, self.ask_brush, self.eris_p_strike),
+            (c_iv, self.eris_c_iv.get(ix - 1), self.bid_pen, self.bid_brush, self.eris_c_strike),
         ]
         if self.show_delta002:
             series_points += [
-                (d002_p_iv, self.delta002_p_iv.get(ix - 1), self.delta002_p_pen, self.delta002_p_brush),
-                (d002_c_iv, self.delta002_c_iv.get(ix - 1), self.delta002_c_pen, self.delta002_c_brush),
+                (d002_p_iv, self.delta002_p_iv.get(ix - 1), self.delta002_p_pen, self.delta002_p_brush, self.delta002_p_strike),
+                (d002_c_iv, self.delta002_c_iv.get(ix - 1), self.delta002_c_pen, self.delta002_c_brush, self.delta002_c_strike),
             ]
         series_points.append(
-            (atm_iv, self.atm_iv.get(ix - 1), self.atm_pen, self.atm_brush)
+            (atm_iv, self.atm_iv.get(ix - 1), self.atm_pen, self.atm_brush, self.eris_a_strike)
         )
 
         picture = QtGui.QPicture()
@@ -343,17 +354,30 @@ class IvItem(ChartItem):
             y_span: float = (y1 - y0) or 1.0
             radius_x = radius_px * x_span / vb.width()
             radius_y = radius_px * y_span / vb.height()
-        for value, prev_value, pen, brush in series_points:
-            # Connecting line from the previous bar's point
+        for value, prev_value, pen, brush, strike_map in series_points:
+            # Strike roll? This bar's reference strike differs from prev bar's.
+            s_now = strike_map.get(ix)
+            s_prev = strike_map.get(ix - 1)
+            rolled: bool = (
+                s_now is not None and s_prev is not None and s_now != s_prev
+            )
+            # Connecting line from the previous bar's point. On a roll the diff
+            # jump is not a real IV move → draw the incoming segment dashed.
             if prev_value is not None:
-                painter.setPen(pen)
+                if rolled:
+                    line_pen = QtGui.QPen(pen)
+                    line_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+                    painter.setPen(line_pen)
+                else:
+                    painter.setPen(pen)
                 painter.drawLine(
                     QtCore.QPointF(ix - 1, prev_value),
                     QtCore.QPointF(ix, value),
                 )
-            # Circle marker at the current point
+            # Marker at the current point: filled circle normally, hollow ring
+            # at a strike-roll bar.
             painter.setPen(pen)
-            painter.setBrush(brush)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush if rolled else brush)
             painter.drawEllipse(QtCore.QPointF(ix, value), radius_x, radius_y)
 
         # ATM daily upper line (these remain as before, they are horizontal)
@@ -528,10 +552,76 @@ class IvItem(ChartItem):
         self._item_picuture = None
         self.update()
 
+    def set_show_strike_roll(self, show: bool) -> None:
+        """Toggle the strike-roll (prev|now) labels."""
+        if self.show_strike_roll == show:
+            return
+        self.show_strike_roll = show
+        self.update()
+
     def paint(self, painter, opt, w) -> None:
         """Draw the item, then (re)position the latest-point value labels."""
         super().paint(painter, opt, w)
         self._update_value_labels()
+        self._update_roll_labels()
+
+    def _update_roll_labels(self) -> None:
+        """Annotate visible strike-roll bars with a "prev|now" strike label."""
+        vb = self.getViewBox()
+        if vb is None or not self.show_strike_roll or not self.eris_p_iv:
+            for lbl in self._roll_labels:
+                lbl.hide()
+            return
+
+        # Only label roll bars currently in view (keeps the item count bounded).
+        (x0, x1), _ = vb.viewRange()
+        last_ix: int = max(self.eris_p_iv.keys())
+        min_ix: int = max(1, int(x0))
+        max_ix: int = min(last_ix, int(x1) + 1)
+
+        # (value map, strike map, colour) per drawn series.
+        specs: list[tuple[Dict[int, float], Dict[int, int], tuple]] = [
+            (self.eris_p_iv, self.eris_p_strike, DOWN_COLOR),
+            (self.eris_c_iv, self.eris_c_strike, RED_COLOR),
+            (self.atm_iv, self.eris_a_strike, WHITE_COLOR),
+        ]
+        if self.show_delta002:
+            specs += [
+                (self.delta002_p_iv, self.delta002_p_strike, BLUE_COLOR),
+                (self.delta002_c_iv, self.delta002_c_strike, YELLOW_COLOR),
+            ]
+
+        # Collect (ix, value, colour, prev_strike, now_strike) for roll bars.
+        entries: list[tuple[int, float, tuple, int, int]] = []
+        for value_map, strike_map, color in specs:
+            for ix in range(min_ix, max_ix + 1):
+                s_now = strike_map.get(ix)
+                s_prev = strike_map.get(ix - 1)
+                if s_now is None or s_prev is None or s_now == s_prev:
+                    continue
+                val = value_map.get(ix)
+                if val is None:
+                    continue
+                entries.append((ix, val, color, int(s_prev), int(s_now)))
+
+        # Grow the pool as needed, then set / hide each label.
+        while len(self._roll_labels) < len(entries):
+            lbl = pg.TextItem(anchor=(0.5, 1.0))
+            lbl.setFont(QtGui.QFont("", 7))
+            vb.addItem(lbl, ignoreBounds=True)
+            self._roll_labels.append(lbl)
+
+        for i, lbl in enumerate(self._roll_labels):
+            if i < len(entries):
+                ix, val, color, s_prev, s_now = entries[i]
+                lbl.setColor(color)
+                # Strikes are in units of 1000 → show 55000|56000 as 55|56
+                # ("g" keeps a half-strike like 55500 as 55.5).
+                lbl.setText(f"{s_prev / 1000:g}|{s_now / 1000:g}")
+                lbl.setPos(ix, val)
+                lbl.show()
+            else:
+                lbl.hide()
 
     def _update_value_labels(self) -> None:
         """Show each series' latest value as a text label beside its last point."""
@@ -606,13 +696,13 @@ class IvItem(ChartItem):
             atm_strike_str = int(atm_strike) if atm_strike is not None else "--------"
             atm = f"ATM青({atm_strike_str}) {atm_iv:.2f}%"
 
-            words: list = [
-                put002,
-                put,
-                atm,
-                call,
-                call002,
-            ]
+            # Δ0.02 lines only when the toolbar checkbox is enabled.
+            words: list = []
+            if self.show_delta002:
+                words.append(put002)
+            words += [put, atm, call]
+            if self.show_delta002:
+                words.append(call002)
 
             text: str = "\n".join(words)
         else:

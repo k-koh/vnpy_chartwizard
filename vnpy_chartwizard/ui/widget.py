@@ -187,6 +187,11 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.d002_check.setChecked(False)
         self.d002_check.toggled.connect(self._on_d002_toggled)
 
+        # Toggle the strike-roll (prev|now) labels on the IV subplot.
+        self.strike_roll_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("行使価格変更")
+        self.strike_roll_check.setChecked(True)
+        self.strike_roll_check.toggled.connect(self._on_strike_roll_toggled)
+
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(QtWidgets.QLabel("期間"))
         hbox.addWidget(self.days_spin)
@@ -196,6 +201,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.interval_combo)
         hbox.addWidget(self.button)
         hbox.addWidget(self.d002_check)
+        hbox.addWidget(self.strike_roll_check)
         hbox.addStretch()
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
@@ -219,6 +225,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].prev_iv_type = OptionPrevIvType.SAME_STRIKE
         # apply the current Δ0.02 toggle state to the new chart's IvItem
         chart._items["otm_strike_iv"].show_delta002 = self.d002_check.isChecked()
+        # apply the current strike-roll label toggle state
+        chart._items["otm_strike_iv"].show_strike_roll = self.strike_roll_check.isChecked()
 
         chart.add_cursor()
         return chart
@@ -231,6 +239,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
                 item.set_show_delta002(checked)
             # Recompute the IV subplot y-range for the new visibility.
             chart._update_y_range()
+
+    def _on_strike_roll_toggled(self, checked: bool) -> None:
+        """Show/hide the strike-roll (prev|now) labels on every open chart."""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.set_show_strike_roll(checked)
 
     def show(self) -> None:
         """最大化显示"""
