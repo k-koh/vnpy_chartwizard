@@ -653,7 +653,9 @@ class IvItem(ChartItem):
                 vb.addItem(label, ignoreBounds=True)
                 self._value_labels[key] = label
             label.setText(f"{tag}{value:+.2f}")
-            label.setPos(last_ix, value)
+            # Small gap to the right of the last point so the text does not
+            # overlap the latest marker.
+            label.setPos(last_ix + 0.6, value)
             label.show()
 
     def get_info_text(self, ix: int) -> str:
