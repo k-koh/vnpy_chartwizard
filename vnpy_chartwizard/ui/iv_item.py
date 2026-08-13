@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from typing import Dict, Tuple
 from dataclasses import dataclass
 import pyqtgraph as pg
@@ -64,6 +64,15 @@ class IvItem(ChartItem):
         # Reusable pool of strike-roll labels (pg.TextItem), positioned at the
         # visible roll bars each paint.
         self._roll_labels: list[pg.TextItem] = []
+
+        # Reusable pool of σ-level labels (±0.5σ, ±1.0σ …) placed at the right
+        # edge next to the latest bar's ATM-IV band lines.
+        self._sigma_labels: list[pg.TextItem] = []
+
+        # Reusable pool of "IV crash" labels (▼): the first point after each
+        # series' max (over the last two sessions) where IV has fallen at least
+        # 0.5σ ATM below that max.
+        self._crash_labels: list[pg.TextItem] = []
 
         # Eris IV data
         self.eris_p_strike: Dict[int, int] = {}
@@ -536,6 +545,13 @@ class IvItem(ChartItem):
         min_iv = min(min_candidates)
         max_iv = max(max_candidates)
 
+        # Add headroom so an extreme latest point (and its value label, which
+        # sits at that point's height) isn't clipped at the top/bottom edge.
+        span: float = max_iv - min_iv
+        pad: float = span * 0.08 if span > 0 else 0.1
+        min_iv -= pad
+        max_iv += pad
+
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
 
@@ -564,6 +580,172 @@ class IvItem(ChartItem):
         super().paint(painter, opt, w)
         self._update_value_labels()
         self._update_roll_labels()
+        self._update_sigma_labels()
+        self._update_crash_labels()
+
+    @staticmethod
+    def _session_key(dt: datetime) -> tuple:
+        """Identify which trading session a bar belongs to, using the same
+        16:00 (night) / 08:00 (day) boundaries as the session lines.
+
+          16:00–23:59  → that date's night session
+          00:00–07:59  → the PREVIOUS date's night session
+          08:00–15:59  → that date's day session
+        """
+        t = dt.time()
+        if t >= time(16, 0):
+            return (dt.date(), "N")
+        if t < time(8, 0):
+            return ((dt - timedelta(days=1)).date(), "N")
+        return (dt.date(), "D")
+
+    def _last_two_session_ix(self) -> list[int]:
+        """Return the bar indices belonging to the current + previous session
+        (scanning back from the latest bar; stops before the 3rd session)."""
+        count: int = self._manager.get_count()
+        if count == 0:
+            return []
+        result: list[int] = []
+        distinct: list[tuple] = []
+        for ix in range(count - 1, -1, -1):
+            bar = self._manager.get_bar(ix)
+            if bar is None:
+                continue
+            key = self._session_key(bar.datetime)
+            if distinct and distinct[-1] == key:
+                result.append(ix)
+                continue
+            if len(distinct) == 2:      # a 3rd session → stop
+                break
+            distinct.append(key)
+            result.append(ix)
+        result.reverse()
+        return result
+
+    def _update_crash_labels(self) -> None:
+        """Mark, for each of Put / Call / ATM, the first point after that
+        series' max IV (over the current + previous session) where IV has
+        dropped at least 0.5σ ATM below the max — i.e. iv ≤ max_iv − 0.5σ.
+        Only the first such point per series is labelled."""
+        vb = self.getViewBox()
+        if vb is None or not self.eris_p_iv:
+            for lbl in self._crash_labels:
+                lbl.hide()
+            return
+
+        window: list[int] = self._last_two_session_ix()
+        if not window:
+            for lbl in self._crash_labels:
+                lbl.hide()
+            return
+
+        # (tag, value map, colour) — matches the value-label colours.
+        specs: list[tuple[str, Dict[int, float], tuple]] = [
+            ("P", self.eris_p_iv, DOWN_COLOR),
+            ("C", self.eris_c_iv, RED_COLOR),
+            ("A", self.atm_iv, WHITE_COLOR),
+        ]
+
+        entries: list[tuple[int, float, tuple, str]] = []
+        for tag, value_map, color in specs:
+            pts: list[tuple[int, float]] = [
+                (ix, value_map[ix]) for ix in window if ix in value_map
+            ]
+            if len(pts) < 2:
+                continue
+            # Max IV and its (latest) bar over the window.
+            max_ix, max_iv = pts[0]
+            for ix, iv in pts:
+                if iv >= max_iv:
+                    max_iv, max_ix = iv, ix
+            # 0.5σ ATM IV変動値 at the peak.
+            threshold: float = self.atm_iv_daily.get(max_ix, 0.0) * 0.5
+            if threshold <= 0:
+                continue
+            # First point strictly after the peak that has crashed ≥ 0.5σ.
+            for ix, iv in pts:
+                if ix <= max_ix:
+                    continue
+                if iv <= max_iv - threshold:
+                    entries.append((ix, iv, color, f"{tag}▼"))
+                    break
+
+        while len(self._crash_labels) < len(entries):
+            lbl = pg.TextItem(anchor=(0.5, 0.0))
+            lbl.setFont(QtGui.QFont("Arial", 9))
+            vb.addItem(lbl, ignoreBounds=True)
+            self._crash_labels.append(lbl)
+
+        for i, lbl in enumerate(self._crash_labels):
+            if i >= len(entries):
+                lbl.hide()
+                continue
+            ix, iv, color, text = entries[i]
+            lbl.setColor(color)
+            lbl.setText(text)
+            lbl.setPos(ix, iv)
+            lbl.show()
+
+    def _update_sigma_labels(self) -> None:
+        """Place ±0.5σ/±1.0σ… labels next to the latest bar's ATM-IV band
+        lines. Mirrors the ladder drawn in _draw_bar_picture: ±0.5σ always,
+        then each higher level only on the side whose IV extreme has broken
+        through. Hidden entirely when the latest bar has no ATM-IV band."""
+        vb = self.getViewBox()
+        if vb is None or not self.eris_p_iv:
+            for lbl in self._sigma_labels:
+                lbl.hide()
+            return
+
+        last_ix: int = max(self.eris_p_iv.keys())
+        atm_iv_daily: float = self.atm_iv_daily.get(last_ix, 0.0)
+        if atm_iv_daily <= 0:
+            for lbl in self._sigma_labels:
+                lbl.hide()
+            return
+
+        p_iv = self.eris_p_iv.get(last_ix, 0.0)
+        c_iv = self.eris_c_iv.get(last_ix, 0.0)
+        atm_iv = self.atm_iv.get(last_ix, 0.0)
+        n225_vi = self.n225_vi.get(last_ix, 0.0)
+        iv_vals: list[float] = [n225_vi, atm_iv, p_iv, c_iv]
+        if self.show_delta002:
+            iv_vals += [
+                self.delta002_p_iv.get(last_ix, 0.0),
+                self.delta002_c_iv.get(last_ix, 0.0),
+            ]
+        max_iv_val = max(iv_vals)
+        min_iv_val = min(iv_vals)
+
+        # (text, y-value) — ±0.5σ always, then the one-per-block ladder.
+        entries: list[tuple[str, float]] = [
+            ("+0.5σ", atm_iv_daily * 0.5),
+            ("-0.5σ", -atm_iv_daily * 0.5),
+        ]
+        for th, mult in ((0.8, 1.0), (1.3, 1.5), (1.8, 2.0), (2.3, 2.5), (2.8, 3.0)):
+            if max_iv_val > atm_iv_daily * th:
+                entries.append((f"+{mult:.1f}σ", atm_iv_daily * mult))
+            elif min_iv_val < -atm_iv_daily * th:
+                entries.append((f"-{mult:.1f}σ", -atm_iv_daily * mult))
+
+        while len(self._sigma_labels) < len(entries):
+            lbl = pg.TextItem(anchor=(0.0, 0.5))
+            # Explicit family: the default/empty-family font lacks the Greek
+            # σ glyph and silently drops it (label showed "+0.5", not "+0.5σ").
+            lbl.setFont(QtGui.QFont("Arial", 8))
+            vb.addItem(lbl, ignoreBounds=True)
+            self._sigma_labels.append(lbl)
+
+        for i, lbl in enumerate(self._sigma_labels):
+            if i >= len(entries):
+                lbl.hide()
+                continue
+            text, y = entries[i]
+            lbl.setColor(WHITE_COLOR)
+            lbl.setText(text)
+            # Placed one column right of the value labels (which sit at +0.6).
+            lbl.setPos(last_ix + 1.6, y)
+            lbl.show()
 
     def _update_roll_labels(self) -> None:
         """Annotate visible strike-roll bars with a "prev|now" strike label."""

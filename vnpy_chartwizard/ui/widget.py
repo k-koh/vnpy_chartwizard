@@ -195,13 +195,23 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         # Auto pivot trend lines (support/resistance) on the candle chart.
         self.trend_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("トレンドライン")
-        self.trend_check.setChecked(False)
+        self.trend_check.setChecked(True)
         self.trend_check.toggled.connect(self._on_trend_toggled)
 
         # Linear-regression channel on the candle chart.
         self.channel_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("チャネル")
         self.channel_check.setChecked(False)
         self.channel_check.toggled.connect(self._on_channel_toggled)
+
+        # Show/hide the cursor cross-hair lines + labels (candle/iv_item/volume).
+        self.cursor_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("カーソル")
+        self.cursor_check.setChecked(False)
+        self.cursor_check.toggled.connect(self._on_cursor_toggled)
+
+        # Show/hide the last-price horizontal line + right-edge price tag.
+        self.last_price_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("現在値")
+        self.last_price_check.setChecked(True)
+        self.last_price_check.toggled.connect(self._on_last_price_toggled)
 
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(QtWidgets.QLabel("期間"))
@@ -215,6 +225,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.strike_roll_check)
         hbox.addWidget(self.trend_check)
         hbox.addWidget(self.channel_check)
+        hbox.addWidget(self.cursor_check)
+        hbox.addWidget(self.last_price_check)
         hbox.addStretch()
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
@@ -248,8 +260,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
         trend_item.candle_item = chart._items["candle"]
         trend_item.show_trend = self.trend_check.isChecked()
         trend_item.show_channel = self.channel_check.isChecked()
+        # apply the current last-price line toggle state to the candle item
+        chart._items["candle"].set_show_last_price(self.last_price_check.isChecked())
 
         chart.add_cursor()
+        # Apply the current cursor show/hide state to the new chart.
+        if chart._cursor is not None:
+            chart._cursor.set_enabled(self.cursor_check.isChecked())
         return chart
 
     def _on_d002_toggled(self, checked: bool) -> None:
@@ -281,6 +298,19 @@ class ChartWizardWidget(QtWidgets.QWidget):
             item = chart._items.get("trend")
             if isinstance(item, TrendLineItem):
                 item.set_show_channel(checked)
+
+    def _on_cursor_toggled(self, checked: bool) -> None:
+        """Show/hide the cursor cross-hair lines + labels on every open chart."""
+        for chart in self.charts.values():
+            if chart._cursor is not None:
+                chart._cursor.set_enabled(checked)
+
+    def _on_last_price_toggled(self, checked: bool) -> None:
+        """Show/hide the last-price line + price tag on every open chart."""
+        for chart in self.charts.values():
+            item = chart._items.get("candle")
+            if isinstance(item, CandleItem):
+                item.set_show_last_price(checked)
 
     def show(self) -> None:
         """最大化显示"""
