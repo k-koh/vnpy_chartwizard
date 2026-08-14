@@ -623,10 +623,11 @@ class IvItem(ChartItem):
         return result
 
     def _update_crash_labels(self) -> None:
-        """Mark, for each of Put / Call / ATM, the first point after that
-        series' max IV (over the current + previous session) where IV has
-        dropped at least 0.5σ ATM below the max — i.e. iv ≤ max_iv − 0.5σ.
-        Only the first such point per series is labelled."""
+        """Mark, for each of Put / Call / ATM, how far IV has crashed from its
+        max over the current + previous session, in 0.5σ ATM steps. The first
+        point that reaches −0.5σ below the max is labelled ▼0.5σ, the first to
+        reach −1.0σ is ▼1σ, −1.5σ → ▼1.5σ, and so on (one label per new deeper
+        step reached; a single big drop is tagged with the deepest step)."""
         vb = self.getViewBox()
         if vb is None or not self.eris_p_iv:
             for lbl in self._crash_labels:
@@ -658,17 +659,24 @@ class IvItem(ChartItem):
             for ix, iv in pts:
                 if iv >= max_iv:
                     max_iv, max_ix = iv, ix
-            # 0.5σ ATM IV変動値 at the peak.
-            threshold: float = self.atm_iv_daily.get(max_ix, 0.0) * 0.5
-            if threshold <= 0:
+            # 0.5σ ATM IV変動値 (one step) at the peak.
+            step: float = self.atm_iv_daily.get(max_ix, 0.0) * 0.5
+            if step <= 0:
                 continue
-            # First point strictly after the peak that has crashed ≥ 0.5σ.
+            # Walk forward from the peak; each time IV reaches a new, deeper
+            # 0.5σ step below the max, label that bar with the deepest step.
+            reached: int = 0
             for ix, iv in pts:
                 if ix <= max_ix:
                     continue
-                if iv <= max_iv - threshold:
-                    entries.append((ix, iv, color, f"{tag}▼"))
-                    break
+                drop: float = max_iv - iv
+                if drop < step:
+                    continue
+                steps: int = int(drop // step)
+                if steps > reached:
+                    reached = steps
+                    mult: float = steps * 0.5
+                    entries.append((ix, iv, color, f"{tag}▼{mult:g}σ"))
 
         while len(self._crash_labels) < len(entries):
             lbl = pg.TextItem(anchor=(0.5, 0.0))

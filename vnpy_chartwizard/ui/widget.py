@@ -12,7 +12,7 @@ from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import QtWidgets, QtCore
 from vnpy.trader.event import EVENT_TICK
 from vnpy.trader.object import ContractData, TickData, BarData, SubscribeRequest
-from vnpy.trader.utility import BarGenerator, ZoneInfo
+from vnpy.trader.utility import BarGenerator, ZoneInfo, save_json, load_json
 from vnpy.trader.constant import Interval, Exchange
 from vnpy_spreadtrading.base import SpreadItem, EVENT_SPREAD_DATA
 
@@ -22,6 +22,9 @@ from .vqi_item import VqiItem
 from .iv_item import IvItem
 from .trend_item import TrendLineItem
 from ..engine import APP_NAME, EVENT_CHART_HISTORY, ChartWizardEngine
+
+# Persisted manual (範囲) trend lines, keyed by vt_symbol → [[start_iso, end_iso], ...].
+TRENDLINE_SETTING_FILENAME = "chartwizard_trendlines.json"
 
 class CustomChartWidget(ChartWidget):
     """
@@ -131,6 +134,9 @@ class ChartWizardWidget(QtWidgets.QWidget):
         # bar, so the first tick creates the forming window with open=current
         # price and the later history seed can no longer fix the open.
         self.history_inited: set[str] = set()
+        # Pending first click while defining a manual range trend line:
+        # (chart, start_bar_index) or None.
+        self._range_start: tuple[ChartWidget, int] | None = None
         self.init_ui()
         self.register_event()
 
@@ -144,7 +150,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2608.JPX", "nk-2609.JPX"])
+        self.symbol_line.addItems(["nk-2609.JPX", "nk-2610.JPX"])
 
         self.interval_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
         self.interval_combo.setSizeAdjustPolicy(
@@ -198,11 +204,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.trend_check.setChecked(True)
         self.trend_check.toggled.connect(self._on_trend_toggled)
 
-        # Linear-regression channel on the candle chart.
-        self.channel_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("チャネル")
-        self.channel_check.setChecked(False)
-        self.channel_check.toggled.connect(self._on_channel_toggled)
-
         # Show/hide the cursor cross-hair lines + labels (candle/iv_item/volume).
         self.cursor_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("カーソル")
         self.cursor_check.setChecked(False)
@@ -212,6 +213,17 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.last_price_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("現在値")
         self.last_price_check.setChecked(True)
         self.last_price_check.toggled.connect(self._on_last_price_toggled)
+
+        # Manual range trend-line tool: while checked, click a start bar then an
+        # end bar to add a support+resistance pair for that range. Right-click a
+        # manual line to delete it.
+        self.range_trend_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("範囲トレンド")
+        self.range_trend_check.setChecked(False)
+        self.range_trend_check.setToolTip(
+            "ONの間: 開始バー→終了バーをクリックで範囲トレンド線を追加。\n"
+            "追加した線を右クリックで削除。"
+        )
+        self.range_trend_check.toggled.connect(self._on_range_trend_toggled)
 
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(QtWidgets.QLabel("期間"))
@@ -224,9 +236,9 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.d002_check)
         hbox.addWidget(self.strike_roll_check)
         hbox.addWidget(self.trend_check)
-        hbox.addWidget(self.channel_check)
         hbox.addWidget(self.cursor_check)
         hbox.addWidget(self.last_price_check)
+        hbox.addWidget(self.range_trend_check)
         hbox.addStretch()
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
@@ -259,7 +271,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
         trend_item = chart._items["trend"]
         trend_item.candle_item = chart._items["candle"]
         trend_item.show_trend = self.trend_check.isChecked()
-        trend_item.show_channel = self.channel_check.isChecked()
         # apply the current last-price line toggle state to the candle item
         chart._items["candle"].set_show_last_price(self.last_price_check.isChecked())
 
@@ -267,6 +278,15 @@ class ChartWizardWidget(QtWidgets.QWidget):
         # Apply the current cursor show/hide state to the new chart.
         if chart._cursor is not None:
             chart._cursor.set_enabled(self.cursor_check.isChecked())
+
+        # Wire the manual range-trend tool: capture clicks on the candle plot.
+        # The right-click context menu is disabled there so right-click can be
+        # used to delete manual lines cleanly.
+        candle_plot = chart._plots["candle"]
+        candle_plot.getViewBox().setMenuEnabled(False)
+        candle_plot.scene().sigMouseClicked.connect(
+            lambda ev, c=chart: self._on_scene_clicked(c, ev)
+        )
         return chart
 
     def _on_d002_toggled(self, checked: bool) -> None:
@@ -292,13 +312,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
             if isinstance(item, TrendLineItem):
                 item.set_show_trend(checked)
 
-    def _on_channel_toggled(self, checked: bool) -> None:
-        """Show/hide the regression channel on every open chart's candle plot."""
-        for chart in self.charts.values():
-            item = chart._items.get("trend")
-            if isinstance(item, TrendLineItem):
-                item.set_show_channel(checked)
-
     def _on_cursor_toggled(self, checked: bool) -> None:
         """Show/hide the cursor cross-hair lines + labels on every open chart."""
         for chart in self.charts.values():
@@ -311,6 +324,127 @@ class ChartWizardWidget(QtWidgets.QWidget):
             item = chart._items.get("candle")
             if isinstance(item, CandleItem):
                 item.set_show_last_price(checked)
+
+    def _on_range_trend_toggled(self, checked: bool) -> None:
+        """Reset any half-finished range selection when the tool is toggled."""
+        self._range_start = None
+
+    def _on_scene_clicked(self, chart: ChartWidget, event) -> None:
+        """Handle clicks on a chart's candle plot for the manual range-trend
+        tool: left-click picks start then end bar; right-click deletes the
+        nearest manual line."""
+        trend = chart._items.get("trend")
+        if not isinstance(trend, TrendLineItem):
+            return
+        candle_plot = chart._plots.get("candle")
+        if candle_plot is None:
+            return
+        vb = candle_plot.getViewBox()
+        scene_pos = event.scenePos()
+        if not vb.sceneBoundingRect().contains(scene_pos):
+            return
+        pt = vb.mapSceneToView(scene_pos)
+
+        try:
+            button = event.button()
+        except Exception:
+            return
+
+        # Right-click: delete the nearest manual line (always available).
+        if button == QtCore.Qt.MouseButton.RightButton:
+            if trend.remove_manual_at(pt.x(), pt.y(), vb):
+                self._save_trendlines(chart)
+                event.accept()
+            return
+
+        # Left-click while the tool is active: pick start then end bar.
+        if button != QtCore.Qt.MouseButton.LeftButton:
+            return
+        if not self.range_trend_check.isChecked():
+            return
+
+        x: int = int(round(pt.x()))
+        if self._range_start is None or self._range_start[0] is not chart:
+            self._range_start = (chart, x)
+        else:
+            start_x: int = self._range_start[1]
+            self._range_start = None
+            trend.add_manual_range(start_x, x)
+            self._save_trendlines(chart)
+        event.accept()
+
+    # ------------------------------------------------------- trendline persistence
+    def _load_trendlines_file(self) -> dict:
+        """Load the saved manual trend lines ({vt_symbol: [[start_iso, end_iso], ...]})."""
+        try:
+            data = load_json(TRENDLINE_SETTING_FILENAME)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_trendlines(self, chart: ChartWidget) -> None:
+        """Persist a chart's manual trend lines, keyed by symbol, as the
+        start/end bar datetimes (indices aren't stable across restarts)."""
+        symbol = next((s for s, c in self.charts.items() if c is chart), None)
+        if symbol is None:
+            return
+        trend = chart._items.get("trend")
+        if not isinstance(trend, TrendLineItem):
+            return
+        manager = chart._manager
+        pairs: list[list[str]] = []
+        for a, b in trend._manual_ranges:
+            da = manager.get_datetime(a)
+            db = manager.get_datetime(b)
+            if da is None or db is None:
+                continue
+            pairs.append([da.isoformat(), db.isoformat()])
+
+        data = self._load_trendlines_file()
+        if pairs:
+            data[symbol] = pairs
+        else:
+            data.pop(symbol, None)
+        save_json(TRENDLINE_SETTING_FILENAME, data)
+
+    def _restore_trendlines(self, symbol: str, chart: ChartWidget) -> None:
+        """Re-add a symbol's saved manual trend lines after its history loads,
+        mapping the saved datetimes back to the nearest current bar index."""
+        trend = chart._items.get("trend")
+        if not isinstance(trend, TrendLineItem):
+            return
+        pairs = self._load_trendlines_file().get(symbol, [])
+        manager = chart._manager
+        ranges: list[tuple[int, int]] = []
+        for item in pairs:
+            try:
+                s_dt = datetime.fromisoformat(item[0])
+                e_dt = datetime.fromisoformat(item[1])
+            except (ValueError, TypeError, IndexError):
+                continue
+            s_ix = self._nearest_index(manager, s_dt)
+            e_ix = self._nearest_index(manager, e_dt)
+            if s_ix is not None and e_ix is not None and abs(e_ix - s_ix) >= 2:
+                ranges.append((s_ix, e_ix))
+        trend.set_manual_ranges(ranges)
+
+    @staticmethod
+    def _nearest_index(manager, dt: datetime) -> int | None:
+        """Index of the bar at `dt`, or the nearest bar if `dt` isn't present
+        (e.g. the window rolled since the line was saved)."""
+        ix = manager.get_index(dt)
+        if ix is not None:
+            return ix
+        bars = manager.get_all_bars()
+        if not bars:
+            return None
+        best_ix: int | None = None
+        best_diff: float | None = None
+        for i, bar in enumerate(bars):
+            diff = abs((bar.datetime - dt).total_seconds())
+            if best_diff is None or diff < best_diff:
+                best_diff, best_ix = diff, i
+        return best_ix
 
     def show(self) -> None:
         """最大化显示"""
@@ -417,6 +551,10 @@ class ChartWizardWidget(QtWidgets.QWidget):
         bar: BarData = history[0]
         chart: ChartWidget = self.charts[bar.vt_symbol]
         chart.update_history(history)
+
+        # Restore any saved manual trend lines now that bars (and their
+        # datetime→index map) are loaded.
+        self._restore_trendlines(bar.vt_symbol, chart)
 
         # update last bar into x minute window
         bar = history[-1]
