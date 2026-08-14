@@ -370,8 +370,12 @@ class TrendLineItem(ChartItem):
             dx_px: float = (x1 - x0) * px_x
             dy_px: float = (y1 - y0) * px_y     # data y-up → positive = up-slope
             angle: float = float(np.degrees(np.arctan2(dy_px, dx_px)))
+            # Price at the line's own endpoint (x1) — i.e. the last bar of its
+            # range: the whole chart's latest bar for auto トレンドライン, or the
+            # user-selected end bar for 範囲トレンド. This is the crossing level
+            # to use as a candidate entry.
             lbl.setColor(pen.color())
-            lbl.setText(f"{angle:+.0f}°")
+            lbl.setText(f"{angle:+.0f}°  {y1:,.0f}")
             # Nudge the label a small gap to the right of the last bar so the
             # text does not overlap the endpoint / candle.
             lbl.setPos(x1 + 0.6, y1)
