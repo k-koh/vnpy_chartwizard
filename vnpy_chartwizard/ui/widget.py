@@ -150,7 +150,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2609.JPX", "nk-2610.JPX"])
+        self.symbol_line.addItems(["nk-2610.JPX", "nk-2611.JPX"])
 
         self.interval_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
         self.interval_combo.setSizeAdjustPolicy(
@@ -177,13 +177,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.MINUTE15)
+            self.interval_combo.findData(Interval.MINUTE5)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
         self.days_spin.setMinimum(3)
         self.days_spin.setMaximum(365)
-        self.days_spin.setValue(45)
+        self.days_spin.setValue(7)
         self.days_spin.setSuffix("日")
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
@@ -214,6 +214,12 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.last_price_check.setChecked(True)
         self.last_price_check.toggled.connect(self._on_last_price_toggled)
 
+        # Every-500-yen round-number horizontal grid lines (dark grey).
+        self.round_lines_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("500円ライン")
+        self.round_lines_check.setChecked(True)
+        self.round_lines_check.setToolTip("500円刻みの水平ライン（節目）を表示")
+        self.round_lines_check.toggled.connect(self._on_round_lines_toggled)
+
         # Manual range trend-line tool: while checked, click a start bar then an
         # end bar to add a support+resistance pair for that range. Right-click a
         # manual line to delete it.
@@ -238,6 +244,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.trend_check)
         hbox.addWidget(self.cursor_check)
         hbox.addWidget(self.last_price_check)
+        hbox.addWidget(self.round_lines_check)
         hbox.addWidget(self.range_trend_check)
         hbox.addStretch()
 
@@ -273,6 +280,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         trend_item.show_trend = self.trend_check.isChecked()
         # apply the current last-price line toggle state to the candle item
         chart._items["candle"].set_show_last_price(self.last_price_check.isChecked())
+        # apply the current 500-yen round-line toggle state
+        chart._items["candle"].set_show_round_lines(self.round_lines_check.isChecked())
 
         chart.add_cursor()
         # Apply the current cursor show/hide state to the new chart.
@@ -324,6 +333,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
             item = chart._items.get("candle")
             if isinstance(item, CandleItem):
                 item.set_show_last_price(checked)
+
+    def _on_round_lines_toggled(self, checked: bool) -> None:
+        """Show/hide the 500-yen round-number lines on every open chart."""
+        for chart in self.charts.values():
+            item = chart._items.get("candle")
+            if isinstance(item, CandleItem):
+                item.set_show_round_lines(checked)
 
     def _on_range_trend_toggled(self, checked: bool) -> None:
         """Reset any half-finished range selection when the tool is toggled."""
