@@ -30,7 +30,9 @@ class IvItem(ChartItem):
         super().__init__(manager)
 
         self.base_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)
-        self.zero_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=1)
+        # 0 baseline: yellow dotted, matching CandleItem's base line
+        self.zero_pen: QtGui.QPen = pg.mkPen(color=YELLOW_COLOR, width=PEN_WIDTH)
+        self.zero_pen.setStyle(QtCore.Qt.DotLine)
 
         # delta 0.02 pens/brushes — distinct hues so they stand out from eris bars
         self.delta002_p_pen: QtGui.QPen = pg.mkPen(color=BLUE_COLOR, width=PEN_WIDTH)

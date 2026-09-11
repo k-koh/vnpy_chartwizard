@@ -177,7 +177,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.MINUTE5)
+            self.interval_combo.findData(Interval.MINUTE3)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
@@ -258,7 +258,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         """创建图表对象"""
         chart: ChartWidget = CustomChartWidget(self.main_engine)
         chart.add_plot("candle", hide_x_axis=True)
-        chart.add_plot("otm_strike_iv", maximum_height=400, hide_x_axis=True)
+        chart.add_plot("otm_strike_iv", maximum_height=800, hide_x_axis=True)
         chart.add_plot("volume", maximum_height=100)
 
         chart.add_item(CandleItem, "candle", "candle")
