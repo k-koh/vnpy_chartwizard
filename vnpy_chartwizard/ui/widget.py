@@ -21,6 +21,11 @@ from .sma_item import SmaItem
 from .vqi_item import VqiItem
 from .iv_item import IvItem
 from .trend_item import TrendLineItem
+from vnpy_optionmaster.base import (
+    APP_NAME as OPTION_APP_NAME,
+    EVENT_OPTION_PREV_DAY_DATA,
+)
+
 from ..engine import APP_NAME, EVENT_CHART_HISTORY, ChartWizardEngine
 
 # Persisted manual (範囲) trend lines, keyed by vt_symbol → [[start_iso, end_iso], ...].
@@ -116,6 +121,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
     signal_tick: QtCore.Signal = QtCore.Signal(Event)
     signal_spread: QtCore.Signal = QtCore.Signal(Event)
     signal_history: QtCore.Signal = QtCore.Signal(Event)
+    signal_prev_day: QtCore.Signal = QtCore.Signal(Event)
 
     def __init__(self, main_engine: MainEngine, event_engine: EventEngine) -> None:
         """构造函数"""
@@ -177,7 +183,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.MINUTE3)
+            self.interval_combo.findData(Interval.MINUTE10)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
@@ -198,6 +204,16 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.strike_roll_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("行使価格変更")
         self.strike_roll_check.setChecked(True)
         self.strike_roll_check.toggled.connect(self._on_strike_roll_toggled)
+
+        # ▲ IV-expansion entry signals on the IV subplot (ATM + both wings
+        # rising together, roll-adjusted, held for 3 bars).
+        self.entry_signal_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("▲エントリー")
+        self.entry_signal_check.setChecked(True)
+        self.entry_signal_check.setToolTip(
+            "ATM IVと両ウィング(Δ0.1 Put/Call)が揃って上昇し、3本維持した点に▲を表示。\n"
+            "行使価格変更の段差・寄り付き30分・薄商いは除外（騙し対策）。"
+        )
+        self.entry_signal_check.toggled.connect(self._on_entry_signal_toggled)
 
         # Auto pivot trend lines (support/resistance) on the candle chart.
         self.trend_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("トレンドライン")
@@ -231,6 +247,17 @@ class ChartWizardWidget(QtWidgets.QWidget):
         )
         self.range_trend_check.toggled.connect(self._on_range_trend_toggled)
 
+        # Re-read the previous session's option data (e.g. after editing bars
+        # in the database) without restarting the app. Updates this window's IV
+        # series and OptionMaster's IV curve window alike.
+        self.reload_prev_button: QtWidgets.QPushButton = QtWidgets.QPushButton(
+            "前日データ再読込"
+        )
+        self.reload_prev_button.setToolTip(
+            "前日オプションデータをDBから再読込し、IV時系列を再計算します。"
+        )
+        self.reload_prev_button.clicked.connect(self._on_reload_prev_day)
+
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(QtWidgets.QLabel("期間"))
         hbox.addWidget(self.days_spin)
@@ -241,11 +268,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.button)
         hbox.addWidget(self.d002_check)
         hbox.addWidget(self.strike_roll_check)
+        hbox.addWidget(self.entry_signal_check)
         hbox.addWidget(self.trend_check)
         hbox.addWidget(self.cursor_check)
         hbox.addWidget(self.last_price_check)
         hbox.addWidget(self.round_lines_check)
         hbox.addWidget(self.range_trend_check)
+        hbox.addWidget(self.reload_prev_button)
         hbox.addStretch()
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
@@ -274,6 +303,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].show_delta002 = self.d002_check.isChecked()
         # apply the current strike-roll label toggle state
         chart._items["otm_strike_iv"].show_strike_roll = self.strike_roll_check.isChecked()
+        # apply the current ▲ entry-signal toggle state
+        chart._items["otm_strike_iv"].show_entry_signal = self.entry_signal_check.isChecked()
         # wire the trend overlay: y-range delegation + current toggle states
         trend_item = chart._items["trend"]
         trend_item.candle_item = chart._items["candle"]
@@ -314,12 +345,31 @@ class ChartWizardWidget(QtWidgets.QWidget):
             if isinstance(item, IvItem):
                 item.set_show_strike_roll(checked)
 
+    def _on_entry_signal_toggled(self, checked: bool) -> None:
+        """Show/hide the ▲ IV-expansion entry labels on every open chart."""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.set_show_entry_signal(checked)
+
     def _on_trend_toggled(self, checked: bool) -> None:
         """Show/hide the pivot trend lines on every open chart's candle plot."""
         for chart in self.charts.values():
             item = chart._items.get("trend")
             if isinstance(item, TrendLineItem):
                 item.set_show_trend(checked)
+
+    def _on_reload_prev_day(self) -> None:
+        """Ask OptionMaster to re-read the previous session's option data.
+
+        The charts are not refreshed here: the engine pushes
+        EVENT_OPTION_PREV_DAY_DATA once the data is rebuilt, and
+        process_prev_day_event does the refresh — so a reload triggered from
+        OptionMaster's IV curve window updates these charts too."""
+        option_engine = self.main_engine.get_engine(OPTION_APP_NAME)
+        if option_engine is None:
+            return
+        option_engine.reload_prev_day_option_data()
 
     def _on_cursor_toggled(self, checked: bool) -> None:
         """Show/hide the cursor cross-hair lines + labels on every open chart."""
@@ -526,10 +576,23 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.signal_tick.connect(self.process_tick_event)
         self.signal_history.connect(self.process_history_event)
         self.signal_spread.connect(self.process_spread_event)
+        self.signal_prev_day.connect(self.process_prev_day_event)
 
         self.event_engine.register(EVENT_CHART_HISTORY, self.signal_history.emit)
         self.event_engine.register(EVENT_TICK, self.signal_tick.emit)
         self.event_engine.register(EVENT_SPREAD_DATA, self.signal_spread.emit)
+        self.event_engine.register(EVENT_OPTION_PREV_DAY_DATA, self.signal_prev_day.emit)
+
+    def process_prev_day_event(self, event: Event) -> None:
+        """OptionMaster reloaded the previous session's option data.
+
+        The IV subplot plots 今日IV − 前日IV and caches it per bar, so drop
+        those caches and redraw every open chart with the new baseline."""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.reload_prev_day_data()
+            chart._update_y_range()
 
     def process_tick_event(self, event: Event) -> None:
         """处理Tick事件"""

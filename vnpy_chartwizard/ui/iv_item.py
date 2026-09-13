@@ -25,6 +25,20 @@ class IvDrawItem:
 class IvItem(ChartItem):
     """"""
 
+    # --- IV expansion entry signal (▲) ---------------------------------------
+    # A genuine vol bid lifts ATM IV *and* both wings together; a 騙し is one
+    # wing moving alone, or a 行使価格変更 step (the tracked Δ0.1 strike rolls
+    # and the series jumps 1.0-1.9 IV pts for no vol reason). Thresholds are
+    # calibrated on nk-2610 10m bars, 2026-08-13 → 09-12. See
+    # _update_entry_labels for the rule and _roll_adjusted for the roll fix.
+    SIGNAL_LOOKBACK_MINUTES: int = 60
+    SIGNAL_ATM_RISE: float = 0.30       # ATM IV pts over the lookback
+    SIGNAL_WING_RISE: float = 0.20      # each wing, roll-adjusted
+    SIGNAL_HOLD_BARS: int = 3           # bars the rule must hold before ▲
+    SIGNAL_VOLUME_PER_10MIN: float = 20.0
+    SIGNAL_OPEN_SKIP_MINUTES: int = 30  # ignore the reopen repricing
+    SIGNAL_DAY_SESSION_ONLY: bool = True    # night signals lost 4 of 5
+
     def __init__(self, manager: BarManager):
         """"""
         super().__init__(manager)
@@ -75,6 +89,11 @@ class IvItem(ChartItem):
         # series' max (over the last two sessions) where IV has fallen at least
         # 0.5σ ATM below that max.
         self._crash_labels: list[pg.TextItem] = []
+
+        # Reusable pool of ▲ entry-signal labels (IV expansion confirmed on
+        # ATM + both wings), and the toggle for them.
+        self._entry_labels: list[pg.TextItem] = []
+        self.show_entry_signal: bool = True
 
         # Eris IV data
         self.eris_p_strike: Dict[int, int] = {}
@@ -174,6 +193,14 @@ class IvItem(ChartItem):
         self.atm_iv_daily.clear()
         self.n225_vi.clear()
         self.iv_ranges.clear()
+
+    def reload_prev_day_data(self) -> None:
+        """Re-read the previous session's IVs after OptionMaster reloaded them.
+
+        Every plotted value is 今日IV − 前日IV, computed once per bar and kept
+        in the caches below (only the newest bar is ever recomputed), so the
+        whole cache has to go; values are rebuilt on the next paint."""
+        self.update_history(self._manager.get_all_bars())
 
     def update_bar(self, bar: BarData) -> None:
         """Override to clear stale zero-valued cache when new bar arrives."""
@@ -570,6 +597,13 @@ class IvItem(ChartItem):
         self._item_picuture = None
         self.update()
 
+    def set_show_entry_signal(self, show: bool) -> None:
+        """Toggle the ▲ IV-expansion entry labels."""
+        if self.show_entry_signal == show:
+            return
+        self.show_entry_signal = show
+        self.update()
+
     def set_show_strike_roll(self, show: bool) -> None:
         """Toggle the strike-roll (prev|now) labels."""
         if self.show_strike_roll == show:
@@ -584,6 +618,7 @@ class IvItem(ChartItem):
         self._update_roll_labels()
         self._update_sigma_labels()
         self._update_crash_labels()
+        self._update_entry_labels()
 
     @staticmethod
     def _session_key(dt: datetime) -> tuple:
@@ -694,6 +729,168 @@ class IvItem(ChartItem):
             lbl.setColor(color)
             lbl.setText(text)
             lbl.setPos(ix, iv)
+            lbl.show()
+
+    def _roll_adjusted(
+        self, window: list[int]
+    ) -> tuple[Dict[int, float], Dict[int, float]]:
+        """Put/Call IV with 行使価格変更 steps removed.
+
+        eris_p_iv follows whichever strike is currently Δ0.1, so every roll
+        steps the series by the skew difference between the two strikes (±1.0
+        to 1.9 IV pts on nk-2610 — bigger than almost any genuine 10-minute
+        move). Back-adjust it the way a rolled futures contract is
+        back-adjusted: absorb the roll bar's jump into an offset so the slope
+        stays comparable. Returns {ix: adjusted value} for put and call.
+        """
+        p_adj: Dict[int, float] = {}
+        c_adj: Dict[int, float] = {}
+        off_p: float = 0.0
+        off_c: float = 0.0
+        prev_ix: int | None = None
+
+        for ix in window:
+            if ix not in self.eris_p_iv or ix not in self.eris_c_iv:
+                continue
+            if prev_ix is not None:
+                if self.eris_p_strike.get(ix) != self.eris_p_strike.get(prev_ix):
+                    off_p += self.eris_p_iv[ix] - self.eris_p_iv[prev_ix]
+                if self.eris_c_strike.get(ix) != self.eris_c_strike.get(prev_ix):
+                    off_c += self.eris_c_iv[ix] - self.eris_c_iv[prev_ix]
+            p_adj[ix] = self.eris_p_iv[ix] - off_p
+            c_adj[ix] = self.eris_c_iv[ix] - off_c
+            prev_ix = ix
+
+        return p_adj, c_adj
+
+    def _bar_minutes(self, window: list[int]) -> float:
+        """Minutes per bar, from the bars themselves (the item is used on 1m,
+        3m, 10m … charts and the lookback is defined in time, not bars)."""
+        gaps: list[float] = []
+        for a, b in zip(window, window[1:]):
+            bar_a = self._manager.get_bar(a)
+            bar_b = self._manager.get_bar(b)
+            if bar_a is None or bar_b is None:
+                continue
+            gap = (bar_b.datetime - bar_a.datetime).total_seconds() / 60.0
+            if 0 < gap <= 240:
+                gaps.append(gap)
+        if not gaps:
+            return 0.0
+        gaps.sort()
+        return gaps[len(gaps) // 2]
+
+    def _update_entry_labels(self) -> None:
+        """Mark bars where IV is *really* expanding, not faking it.
+
+        All of these must hold, measured over SIGNAL_LOOKBACK_MINUTES:
+
+          ATM IV          up by SIGNAL_ATM_RISE      (the anchor: its strike is
+                                                      stable, so no roll noise)
+          both wings      up by SIGNAL_WING_RISE     (roll-adjusted; breadth is
+                                                      what separates a vol bid
+                                                      from a skew move)
+          held            SIGNAL_HOLD_BARS bars      (enter on the hold, not on
+                                                      the spike)
+          clean bar       no 行使価格変更 on the signal bar, volume above the
+                          floor, and not inside the first
+                          SIGNAL_OPEN_SKIP_MINUTES of a session (the reopen
+                          reprices on a thin book — that is the 2026-09-11
+                          17:20 trap)
+
+        The label sits on the ATM (white) point and reads ▲ plus the ATM IV
+        change over the lookback.
+        """
+        vb = self.getViewBox()
+        window: list[int] = self._last_two_session_ix() if self.eris_p_iv else []
+        if vb is None or not self.show_entry_signal or len(window) < 3:
+            for lbl in self._entry_labels:
+                lbl.hide()
+            return
+
+        bar_minutes: float = self._bar_minutes(window)
+        if bar_minutes <= 0:
+            for lbl in self._entry_labels:
+                lbl.hide()
+            return
+
+        lookback: int = max(1, round(self.SIGNAL_LOOKBACK_MINUTES / bar_minutes))
+        open_skip: int = max(1, round(self.SIGNAL_OPEN_SKIP_MINUTES / bar_minutes))
+        min_volume: float = self.SIGNAL_VOLUME_PER_10MIN * bar_minutes / 10.0
+
+        p_adj, c_adj = self._roll_adjusted(window)
+
+        # How many bars into its session each bar is (for the open filter).
+        session_pos: Dict[int, int] = {}
+        counts: Dict[tuple, int] = {}
+        for ix in window:
+            bar = self._manager.get_bar(ix)
+            if bar is None:
+                continue
+            key = self._session_key(bar.datetime)
+            counts[key] = counts.get(key, 0) + 1
+            session_pos[ix] = counts[key]
+
+        entries: list[tuple[int, float, str]] = []
+        run: int = 0
+        armed: bool = True      # one label per run, not one per bar
+
+        for i, ix in enumerate(window):
+            back = i - lookback
+            if back < 0 or ix not in p_adj or ix not in self.atm_iv:
+                continue
+            base_ix = window[back]
+            if base_ix not in p_adj or base_ix not in self.atm_iv:
+                continue
+
+            d_atm: float = self.atm_iv[ix] - self.atm_iv[base_ix]
+            d_put: float = p_adj[ix] - p_adj[base_ix]
+            d_call: float = c_adj[ix] - c_adj[base_ix]
+
+            trend_ok: bool = (
+                d_atm >= self.SIGNAL_ATM_RISE
+                and d_put >= self.SIGNAL_WING_RISE
+                and d_call >= self.SIGNAL_WING_RISE
+            )
+            if not trend_ok:
+                run = 0
+                armed = True
+                continue
+            run += 1
+            if run < self.SIGNAL_HOLD_BARS or not armed:
+                continue
+
+            # The signal bar itself must be trustworthy.
+            prev_ix = window[i - 1]
+            if (self.eris_p_strike.get(ix) != self.eris_p_strike.get(prev_ix)
+                    or self.eris_c_strike.get(ix) != self.eris_c_strike.get(prev_ix)):
+                continue
+
+            bar = self._manager.get_bar(ix)
+            if bar is None or bar.volume < min_volume:
+                continue
+            if session_pos.get(ix, 0) <= open_skip:
+                continue
+            if self.SIGNAL_DAY_SESSION_ONLY and self._session_key(bar.datetime)[1] != "D":
+                continue
+
+            entries.append((ix, self.atm_iv[ix], f"▲{d_atm:+.1f}"))
+            armed = False
+
+        while len(self._entry_labels) < len(entries):
+            lbl = pg.TextItem(anchor=(0.5, 1.0))
+            lbl.setFont(QtGui.QFont("Arial", 9))
+            vb.addItem(lbl, ignoreBounds=True)
+            self._entry_labels.append(lbl)
+
+        for i, lbl in enumerate(self._entry_labels):
+            if i >= len(entries):
+                lbl.hide()
+                continue
+            ix, value, text = entries[i]
+            lbl.setColor(SPRING_GREEN_COLOR)
+            lbl.setText(text)
+            lbl.setPos(ix, value)
             lbl.show()
 
     def _update_sigma_labels(self) -> None:
