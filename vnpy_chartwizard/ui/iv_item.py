@@ -1,6 +1,7 @@
 from datetime import datetime, time, timedelta
 from typing import Dict, Tuple
 from dataclasses import dataclass
+import math
 import pyqtgraph as pg
 
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, YELLOW_COLOR, WHITE_COLOR, BLUE_COLOR, \
@@ -73,6 +74,14 @@ class IvItem(ChartItem):
         # (e.g. "55000|56000"). Toggled from the chart toolbar checkbox.
         self.show_strike_roll: bool = False
 
+        # Bars, drawn the same way as the エントリー判定 chart: translucent
+        # fill + solid outline, shortest bar in front. Series can be hidden and
+        # the fill weight is adjustable from the toolbar.
+        self.fill_alpha: float = 0.45
+        self.show_atm: bool = True
+        self.show_put: bool = True
+        self.show_call: bool = True
+
         # Value labels drawn beside each series' latest point (pg.TextItem,
         # created lazily once the item has a ViewBox).
         self._value_labels: Dict[str, pg.TextItem] = {}
@@ -89,6 +98,10 @@ class IvItem(ChartItem):
         # series' max (over the last two sessions) where IV has fallen at least
         # 0.5σ ATM below that max.
         self._crash_labels: list[pg.TextItem] = []
+
+        # Reusable pool of per-bar value labels: only the outermost of the
+        # three series per bar, so overlapping bars never stack three numbers.
+        self._extreme_labels: list[pg.TextItem] = []
 
         # Reusable pool of ▲ entry-signal labels (IV expansion confirmed on
         # ATM + both wings), and the toggle for them.
@@ -354,18 +367,24 @@ class IvItem(ChartItem):
         # "roll": when this bar's reference strike differs from the previous
         # bar's, the same-strike day-over-day diff is comparing a DIFFERENT
         # strike, so the jump is not a genuine IV move — we flag it (see below).
-        series_points: list[tuple[float, float | None, QtGui.QPen, QtGui.QBrush, Dict[int, int]]] = [
-            (p_iv, self.eris_p_iv.get(ix - 1), self.ask_pen, self.ask_brush, self.eris_p_strike),
-            (c_iv, self.eris_c_iv.get(ix - 1), self.bid_pen, self.bid_brush, self.eris_c_strike),
-        ]
+        series_points: list[tuple[float, float | None, QtGui.QPen, QtGui.QBrush, Dict[int, int]]] = []
+        if self.show_put:
+            series_points.append(
+                (p_iv, self.eris_p_iv.get(ix - 1), self.ask_pen, self.ask_brush, self.eris_p_strike)
+            )
+        if self.show_call:
+            series_points.append(
+                (c_iv, self.eris_c_iv.get(ix - 1), self.bid_pen, self.bid_brush, self.eris_c_strike)
+            )
         if self.show_delta002:
             series_points += [
                 (d002_p_iv, self.delta002_p_iv.get(ix - 1), self.delta002_p_pen, self.delta002_p_brush, self.delta002_p_strike),
                 (d002_c_iv, self.delta002_c_iv.get(ix - 1), self.delta002_c_pen, self.delta002_c_brush, self.delta002_c_strike),
             ]
-        series_points.append(
-            (atm_iv, self.atm_iv.get(ix - 1), self.atm_pen, self.atm_brush, self.eris_a_strike)
-        )
+        if self.show_atm:
+            series_points.append(
+                (atm_iv, self.atm_iv.get(ix - 1), self.atm_pen, self.atm_brush, self.eris_a_strike)
+            )
 
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
@@ -377,46 +396,45 @@ class IvItem(ChartItem):
             QtCore.QPointF(ix + 0.5, 0),
         )
 
-        # Draw each series as a circle marker at (ix, value), connected to the
-        # previous bar's point by a line (line chart with circle markers).
-        # The x/y axes have very different data scales, so size the marker in
-        # PIXELS and convert to data units via the view's pixel-per-data ratio
-        # → it renders as a (small) circle, not a tall ellipse.
-        radius_px: float = 3.0
-        radius_x: float = BAR_WIDTH * 0.3
-        radius_y: float = BAR_WIDTH * 0.3
-        vb = self.getViewBox()
-        if vb is not None and vb.width() > 0 and vb.height() > 0:
-            (x0, x1), (y0, y1) = vb.viewRange()
-            x_span: float = (x1 - x0) or 1.0
-            y_span: float = (y1 - y0) or 1.0
-            radius_x = radius_px * x_span / vb.width()
-            radius_y = radius_px * y_span / vb.height()
-        for value, prev_value, pen, brush, strike_map in series_points:
+        # Each series is a bar from 0 to its value, drawn the way the
+        # エントリー判定 chart draws them: a translucent fill so an overlapped
+        # bar still shows through, a solid outline for identity, the SHORTEST
+        # bar last so it is never buried, and every outline after every fill.
+        half: float = BAR_WIDTH
+        bars: list[tuple[float, QtGui.QPen, bool]] = []
+        for value, _prev_value, pen, _brush, strike_map in series_points:
             # Strike roll? This bar's reference strike differs from prev bar's.
             s_now = strike_map.get(ix)
             s_prev = strike_map.get(ix - 1)
             rolled: bool = (
                 s_now is not None and s_prev is not None and s_now != s_prev
             )
-            # Connecting line from the previous bar's point. On a roll the diff
-            # jump is not a real IV move → draw the incoming segment dashed.
-            if prev_value is not None:
-                if rolled:
-                    line_pen = QtGui.QPen(pen)
-                    line_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-                    painter.setPen(line_pen)
-                else:
-                    painter.setPen(pen)
-                painter.drawLine(
-                    QtCore.QPointF(ix - 1, prev_value),
-                    QtCore.QPointF(ix, value),
-                )
-            # Marker at the current point: filled circle normally, hollow ring
-            # at a strike-roll bar.
-            painter.setPen(pen)
-            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush if rolled else brush)
-            painter.drawEllipse(QtCore.QPointF(ix, value), radius_x, radius_y)
+            bars.append((value, pen, rolled))
+        bars.sort(key=lambda t: abs(t[0]), reverse=True)
+
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        for value, pen, _rolled in bars:
+            if not value:
+                continue
+            fill: QtGui.QColor = QtGui.QColor(pen.color())
+            fill.setAlphaF(self.fill_alpha)
+            painter.setBrush(QtGui.QBrush(fill))
+            painter.drawRect(QtCore.QRectF(
+                ix - half, min(0.0, value), half * 2, abs(value)
+            ))
+
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        for value, pen, rolled in bars:
+            if not value:
+                continue
+            edge_pen: QtGui.QPen = QtGui.QPen(pen)
+            if rolled:
+                # the day-over-day diff changed strike here — not a real move
+                edge_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+            painter.setPen(edge_pen)
+            painter.drawRect(QtCore.QRectF(
+                ix - half, min(0.0, value), half * 2, abs(value)
+            ))
 
         # ATM daily upper line (these remain as before, they are horizontal)
         painter.setPen(self.base_pen)
@@ -604,6 +622,28 @@ class IvItem(ChartItem):
         self.show_entry_signal = show
         self.update()
 
+    def _invalidate(self) -> None:
+        """Force every bar picture to be re-drawn on the next paint."""
+        # The paint loop indexes _bar_picutures[ix] and bounds max_ix by its
+        # len, so the keys must stay — only the pictures are dropped.
+        self._bar_picutures = {ix: None for ix in self._bar_picutures}
+        self._item_picuture = None
+        self.update()
+
+    def set_fill_alpha(self, alpha: float) -> None:
+        """Opacity of the bar fills (the outlines stay solid)."""
+        if abs(self.fill_alpha - alpha) < 1e-6:
+            return
+        self.fill_alpha = alpha
+        self._invalidate()
+
+    def set_series_visible(self, atm: bool, put: bool, call: bool) -> None:
+        """Show/hide the ATM, Δ0.1 Put and Δ0.1 Call bars."""
+        if (atm, put, call) == (self.show_atm, self.show_put, self.show_call):
+            return
+        self.show_atm, self.show_put, self.show_call = atm, put, call
+        self._invalidate()
+
     def set_show_strike_roll(self, show: bool) -> None:
         """Toggle the strike-roll (prev|now) labels."""
         if self.show_strike_roll == show:
@@ -618,6 +658,7 @@ class IvItem(ChartItem):
         self._update_roll_labels()
         self._update_sigma_labels()
         self._update_crash_labels()
+        self._update_extreme_labels()
         self._update_entry_labels()
 
     @staticmethod
@@ -658,6 +699,74 @@ class IvItem(ChartItem):
             result.append(ix)
         result.reverse()
         return result
+
+    def _update_extreme_labels(self) -> None:
+        """Label the outermost of the three series on each visible bar.
+
+        Three numbers on overlapping bars is unreadable, and the extreme one is
+        what gets read anyway — so each bar shows at most two: the highest
+        positive and the lowest negative, each in its own series colour. The
+        labels thin out as the bars get narrower and disappear entirely once
+        there is no room for a number.
+        """
+        vb = self.getViewBox()
+        if vb is None or not self.eris_p_iv:
+            for lbl in self._extreme_labels:
+                lbl.hide()
+            return
+
+        (x0, x1), _ = vb.viewRange()
+        first: int = max(0, int(x0))
+        last: int = min(self._manager.get_count() - 1, int(x1) + 1)
+        visible: int = last - first + 1
+        if visible <= 0 or visible > 240:
+            for lbl in self._extreme_labels:
+                lbl.hide()
+            return
+
+        step: int = max(1, math.ceil(visible / 40))
+
+        specs: list[tuple[Dict[int, float], tuple, bool]] = [
+            (self.atm_iv, WHITE_COLOR, self.show_atm),
+            (self.eris_p_iv, DOWN_COLOR, self.show_put),
+            (self.eris_c_iv, RED_COLOR, self.show_call),
+        ]
+
+        entries: list[tuple[int, float, tuple]] = []
+        for ix in range(first, last + 1, step):
+            vals = [
+                (value_map[ix], color)
+                for value_map, color, shown in specs
+                if shown and ix in value_map and value_map[ix]
+            ]
+            if not vals:
+                continue
+            pos = [t for t in vals if t[0] > 0]
+            neg = [t for t in vals if t[0] < 0]
+            if pos:
+                v, color = max(pos, key=lambda t: t[0])
+                entries.append((ix, v, color))
+            if neg:
+                v, color = min(neg, key=lambda t: t[0])
+                entries.append((ix, v, color))
+
+        while len(self._extreme_labels) < len(entries):
+            lbl = pg.TextItem(anchor=(0.5, 1.0))
+            lbl.setFont(QtGui.QFont("Arial", 8))
+            vb.addItem(lbl, ignoreBounds=True)
+            self._extreme_labels.append(lbl)
+
+        for i, lbl in enumerate(self._extreme_labels):
+            if i >= len(entries):
+                lbl.hide()
+                continue
+            ix, value, color = entries[i]
+            # above a positive bar, below a negative one
+            lbl.setAnchor((0.5, 1.0) if value > 0 else (0.5, 0.0))
+            lbl.setColor(color)
+            lbl.setText(f"{value:+.2f}")
+            lbl.setPos(ix, value)
+            lbl.show()
 
     def _update_crash_labels(self) -> None:
         """Mark, for each of Put / Call / ATM, how far IV has crashed from its
@@ -968,12 +1077,15 @@ class IvItem(ChartItem):
         min_ix: int = max(1, int(x0))
         max_ix: int = min(last_ix, int(x1) + 1)
 
-        # (value map, strike map, colour) per drawn series.
-        specs: list[tuple[Dict[int, float], Dict[int, int], tuple]] = [
-            (self.eris_p_iv, self.eris_p_strike, DOWN_COLOR),
-            (self.eris_c_iv, self.eris_c_strike, RED_COLOR),
-            (self.atm_iv, self.eris_a_strike, WHITE_COLOR),
-        ]
+        # (value map, strike map, colour) per drawn series — a hidden series
+        # must not leave a label pointing at a bar that is not there.
+        specs: list[tuple[Dict[int, float], Dict[int, int], tuple]] = []
+        if self.show_put:
+            specs.append((self.eris_p_iv, self.eris_p_strike, DOWN_COLOR))
+        if self.show_call:
+            specs.append((self.eris_c_iv, self.eris_c_strike, RED_COLOR))
+        if self.show_atm:
+            specs.append((self.atm_iv, self.eris_a_strike, WHITE_COLOR))
         if self.show_delta002:
             specs += [
                 (self.delta002_p_iv, self.delta002_p_strike, BLUE_COLOR),
@@ -1007,6 +1119,9 @@ class IvItem(ChartItem):
                 # Strikes are in units of 1000 → show 55000|56000 as 55|56
                 # ("g" keeps a half-strike like 55500 as 55.5).
                 lbl.setText(f"{s_prev / 1000:g}|{s_now / 1000:g}")
+                # Bars are filled now, so a label placed just above a negative
+                # value would sit inside the bar — put it under that one.
+                lbl.setAnchor((0.5, 1.0) if val >= 0 else (0.5, 0.0))
                 lbl.setPos(ix, val)
                 lbl.show()
             else:

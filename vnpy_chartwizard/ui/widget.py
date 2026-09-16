@@ -200,6 +200,26 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.d002_check.setChecked(False)
         self.d002_check.toggled.connect(self._on_d002_toggled)
 
+        # IV subplot: which series are drawn and how solid their fills are.
+        self.iv_atm_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("ATM")
+        self.iv_put_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Put")
+        self.iv_call_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Call")
+        for box in (self.iv_atm_check, self.iv_put_check, self.iv_call_check):
+            box.setChecked(True)
+            box.setToolTip("IVパネルのこの系列の表示/非表示")
+            box.toggled.connect(self._on_iv_series_toggled)
+
+        self.iv_alpha_spin: QtWidgets.QDoubleSpinBox = QtWidgets.QDoubleSpinBox()
+        self.iv_alpha_spin.setRange(0.05, 1.00)
+        self.iv_alpha_spin.setSingleStep(0.05)
+        self.iv_alpha_spin.setDecimals(2)
+        self.iv_alpha_spin.setValue(0.45)
+        self.iv_alpha_spin.setFixedWidth(65)
+        self.iv_alpha_spin.setToolTip(
+            "IVバーの塗りの不透明度。小さいほど重なった系列が透けて見えます。"
+        )
+        self.iv_alpha_spin.valueChanged.connect(self._on_iv_alpha_changed)
+
         # Toggle the strike-roll (prev|now) labels on the IV subplot.
         self.strike_roll_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("行使価格変更")
         self.strike_roll_check.setChecked(True)
@@ -269,6 +289,12 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.d002_check)
         hbox.addWidget(self.strike_roll_check)
         hbox.addWidget(self.entry_signal_check)
+        hbox.addWidget(QtWidgets.QLabel("IV"))
+        hbox.addWidget(self.iv_atm_check)
+        hbox.addWidget(self.iv_put_check)
+        hbox.addWidget(self.iv_call_check)
+        hbox.addWidget(QtWidgets.QLabel("透明度"))
+        hbox.addWidget(self.iv_alpha_spin)
         hbox.addWidget(self.trend_check)
         hbox.addWidget(self.cursor_check)
         hbox.addWidget(self.last_price_check)
@@ -305,6 +331,11 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].show_strike_roll = self.strike_roll_check.isChecked()
         # apply the current ▲ entry-signal toggle state
         chart._items["otm_strike_iv"].show_entry_signal = self.entry_signal_check.isChecked()
+        # apply the current IV bar settings
+        chart._items["otm_strike_iv"].fill_alpha = self.iv_alpha_spin.value()
+        chart._items["otm_strike_iv"].show_atm = self.iv_atm_check.isChecked()
+        chart._items["otm_strike_iv"].show_put = self.iv_put_check.isChecked()
+        chart._items["otm_strike_iv"].show_call = self.iv_call_check.isChecked()
         # wire the trend overlay: y-range delegation + current toggle states
         trend_item = chart._items["trend"]
         trend_item.candle_item = chart._items["candle"]
@@ -344,6 +375,25 @@ class ChartWizardWidget(QtWidgets.QWidget):
             item = chart._items.get("otm_strike_iv")
             if isinstance(item, IvItem):
                 item.set_show_strike_roll(checked)
+
+    def _on_iv_series_toggled(self, _checked: bool) -> None:
+        """Show/hide ATM / Δ0.1 Put / Δ0.1 Call on every open chart's IV row."""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.set_series_visible(
+                    self.iv_atm_check.isChecked(),
+                    self.iv_put_check.isChecked(),
+                    self.iv_call_check.isChecked(),
+                )
+            chart._update_y_range()
+
+    def _on_iv_alpha_changed(self, value: float) -> None:
+        """Fill opacity of the IV bars on every open chart."""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.set_fill_alpha(value)
 
     def _on_entry_signal_toggled(self, checked: bool) -> None:
         """Show/hide the ▲ IV-expansion entry labels on every open chart."""
