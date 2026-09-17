@@ -62,6 +62,11 @@ class IvItem(ChartItem):
         self.bid_brush: QtGui.QBrush = pg.mkBrush(color=RED_COLOR)
         self.delta002_c_brush: QtGui.QBrush = pg.mkBrush(color=YELLOW_COLOR)
 
+        # ATM の面の上下（滑りを除いた、ボラ水準そのものの前日比）。
+        # インプライドボラティリティカーブの IV分解 と同じ緑。
+        self.atm_level_pen: QtGui.QPen = pg.mkPen(color=SPRING_GREEN_COLOR, width=PEN_WIDTH)
+        self.atm_level_brush: QtGui.QBrush = pg.mkBrush(color=SPRING_GREEN_COLOR)
+
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
         self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_STRIKE
@@ -81,6 +86,7 @@ class IvItem(ChartItem):
         self.show_atm: bool = True
         self.show_put: bool = True
         self.show_call: bool = True
+        self.show_atm_level: bool = True
 
         # Value labels drawn beside each series' latest point (pg.TextItem,
         # created lazily once the item has a ViewBox).
@@ -130,6 +136,12 @@ class IvItem(ChartItem):
         self.delta002_c_iv: Dict[int, float] = {}
 
         self.atm_iv: Dict[int, float] = {}
+
+        # ATM の面の上下だけのIV（bar.atm_level_iv）の前日比。
+        #   前日比IV ＝ 面の上下 ＋ 滑り
+        # のうち、先物がスマイル上を滑っただけの見かけの変化（滑り）を除いた
+        # 分。プラスなら今日そのものボラが買われている。
+        self.atm_level_iv: Dict[int, float] = {}
         self.n225_vi: Dict[int, float] = {}
         # atm_iv 年率から日率に変換
         self.atm_iv_daily: Dict[int, float] = {}
@@ -203,6 +215,7 @@ class IvItem(ChartItem):
         self.delta002_p_delta.clear()
         self.delta002_c_delta.clear()
         self.atm_iv.clear()
+        self.atm_level_iv.clear()
         self.atm_iv_daily.clear()
         self.n225_vi.clear()
         self.iv_ranges.clear()
@@ -239,6 +252,10 @@ class IvItem(ChartItem):
         # When initialize, calculate all rsi value
         if not self.eris_p_iv:
             self._last_init_attempt = datetime.now(DB_TZ)
+            # 日経VIの前日値は「直近セッションの1本」しか持たないので now で引く。
+            # オプションIVは日足が日ごとに残っているので、各バーは自分の
+            # datetime で引く（下）。now で引くと、今日の15:45が書かれた後は
+            # 日中のバーまで「今日の引け」と比べてしまい、符号ごと変わる。
             dt: datetime = datetime.now(DB_TZ)
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
@@ -249,7 +266,7 @@ class IvItem(ChartItem):
                     bar.eris_p_strike,
                     bar.eris_c_strike,
                     atm_price,
-                    dt
+                    bar.datetime
                 )
                 prev_d002_p_iv, prev_d002_c_iv, _ = self.get_prev_day_option_iv(
                     bar.vt_symbol,
@@ -257,7 +274,7 @@ class IvItem(ChartItem):
                     bar.delta002_p_strike,
                     bar.delta002_c_strike,
                     atm_price,
-                    dt
+                    bar.datetime
                 )
                 prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
@@ -285,6 +302,11 @@ class IvItem(ChartItem):
                 self.atm_iv[n] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv else 0
                 self.eris_a_strike[n] = atm_price
 
+                # 面の上下: 同じモネネスで測り直した今日のIV − 前日同一行使価格IV。
+                # 記録が無い（この列を持たない古いバー）の場合は 0。
+                level_iv = getattr(bar, "atm_level_iv", None)
+                self.atm_level_iv[n] = (level_iv - prev_a_iv) * 100.0 if level_iv and prev_a_iv else 0
+
                 # atm_iv 年率から日率に変換
                 self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
 
@@ -307,7 +329,7 @@ class IvItem(ChartItem):
                 bar.eris_p_strike,
                 bar.eris_c_strike,
                 atm_price,
-                dt
+                bar.datetime
             )
             prev_d002_p_iv, prev_d002_c_iv, _ = self.get_prev_day_option_iv(
                 bar.vt_symbol,
@@ -315,7 +337,7 @@ class IvItem(ChartItem):
                 bar.delta002_p_strike,
                 bar.delta002_c_strike,
                 atm_price,
-                dt
+                bar.datetime
             )
             prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
@@ -342,6 +364,11 @@ class IvItem(ChartItem):
             iv = bar.atm_iv
             self.atm_iv[ix] = (iv - prev_a_iv) * 100.0 if iv is not None and iv != 0 and prev_a_iv else 0
             self.eris_a_strike[ix] = atm_price
+
+            # 面の上下: 同じモネネスで測り直した今日のIV − 前日同一行使価格IV。
+            # 記録が無い（この列を持たない古いバー）の場合は 0。
+            level_iv = getattr(bar, "atm_level_iv", None)
+            self.atm_level_iv[ix] = (level_iv - prev_a_iv) * 100.0 if level_iv and prev_a_iv else 0
 
             # atm_iv 年率から日率に変換
             self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
@@ -384,6 +411,11 @@ class IvItem(ChartItem):
         if self.show_atm:
             series_points.append(
                 (atm_iv, self.atm_iv.get(ix - 1), self.atm_pen, self.atm_brush, self.eris_a_strike)
+            )
+        if self.show_atm_level:
+            series_points.append(
+                (self.atm_level_iv.get(ix, 0.0), self.atm_level_iv.get(ix - 1),
+                 self.atm_level_pen, self.atm_level_brush, self.eris_a_strike)
             )
 
         picture = QtGui.QPicture()
@@ -584,8 +616,13 @@ class IvItem(ChartItem):
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
+        level_values = list(self.atm_level_iv.values())[min_ix:max_ix + 1] or [0.0]
+
         min_candidates: list[float] = [p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min]
         max_candidates: list[float] = [p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max]
+        if self.show_atm_level:
+            min_candidates.append(min(level_values))
+            max_candidates.append(max(level_values))
         if self.show_delta002:
             min_candidates += [d002_p_min, d002_c_min]
             max_candidates += [d002_c_max, d002_p_max]
@@ -637,11 +674,17 @@ class IvItem(ChartItem):
         self.fill_alpha = alpha
         self._invalidate()
 
-    def set_series_visible(self, atm: bool, put: bool, call: bool) -> None:
-        """Show/hide the ATM, Δ0.1 Put and Δ0.1 Call bars."""
-        if (atm, put, call) == (self.show_atm, self.show_put, self.show_call):
+    def set_series_visible(
+        self, atm: bool, put: bool, call: bool, level: bool = True
+    ) -> None:
+        """Show/hide the ATM, Δ0.1 Put, Δ0.1 Call and ATM面の上下 bars."""
+        state = (atm, put, call, level)
+        if state == (self.show_atm, self.show_put, self.show_call, self.show_atm_level):
             return
-        self.show_atm, self.show_put, self.show_call = atm, put, call
+        (
+            self.show_atm, self.show_put, self.show_call, self.show_atm_level
+        ) = state
+        self.iv_ranges.clear()      # 面の上下 takes part in the y-range
         self._invalidate()
 
     def set_show_strike_roll(self, show: bool) -> None:
@@ -728,6 +771,7 @@ class IvItem(ChartItem):
 
         specs: list[tuple[Dict[int, float], tuple, bool]] = [
             (self.atm_iv, WHITE_COLOR, self.show_atm),
+            (self.atm_level_iv, SPRING_GREEN_COLOR, self.show_atm_level),
             (self.eris_p_iv, DOWN_COLOR, self.show_put),
             (self.eris_c_iv, RED_COLOR, self.show_call),
         ]
@@ -1139,6 +1183,7 @@ class IvItem(ChartItem):
             ("eris_p", self.eris_p_iv, DOWN_COLOR, "P", True),
             ("eris_c", self.eris_c_iv, RED_COLOR, "C", True),
             ("atm", self.atm_iv, WHITE_COLOR, "A", True),
+            ("atm_level", self.atm_level_iv, SPRING_GREEN_COLOR, "面", self.show_atm_level),
             ("d002_p", self.delta002_p_iv, BLUE_COLOR, "P2", self.show_delta002),
             ("d002_c", self.delta002_c_iv, YELLOW_COLOR, "C2", self.show_delta002),
         ]
@@ -1202,11 +1247,16 @@ class IvItem(ChartItem):
             atm_strike_str = int(atm_strike) if atm_strike is not None else "--------"
             atm = f"ATM青({atm_strike_str}) {atm_iv:.2f}%"
 
+            level_iv = self.atm_level_iv.get(ix, 0.0)
+            level = f"面の上下緑({atm_strike_str}) {level_iv:.2f}%"
+
             # Δ0.02 lines only when the toolbar checkbox is enabled.
             words: list = []
             if self.show_delta002:
                 words.append(put002)
             words += [put, atm, call]
+            if self.show_atm_level:
+                words.append(level)
             if self.show_delta002:
                 words.append(call002)
 
@@ -1229,5 +1279,6 @@ class IvItem(ChartItem):
         self.delta002_p_delta.clear()
         self.delta002_c_delta.clear()
         self.atm_iv.clear()
+        self.atm_level_iv.clear()
         self.iv_ranges.clear()
         super().clear_all()

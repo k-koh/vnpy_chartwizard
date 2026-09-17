@@ -204,7 +204,17 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.iv_atm_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("ATM")
         self.iv_put_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Put")
         self.iv_call_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Call")
-        for box in (self.iv_atm_check, self.iv_put_check, self.iv_call_check):
+        # ATM の面の上下: 前日比IVから「滑り」を除いた、ボラ水準そのものの動き
+        self.iv_level_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("面")
+        self.iv_level_check.setToolTip(
+            "ATMの面の上下（前日比IV − 滑り）。\n"
+            "先物が動いてスマイル上を滑っただけの見かけの変化を除いた、\n"
+            "ボラそのものが買われた／売られた分。"
+        )
+        for box in (
+            self.iv_atm_check, self.iv_put_check,
+            self.iv_call_check, self.iv_level_check,
+        ):
             box.setChecked(True)
             box.setToolTip("IVパネルのこの系列の表示/非表示")
             box.toggled.connect(self._on_iv_series_toggled)
@@ -293,6 +303,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.iv_atm_check)
         hbox.addWidget(self.iv_put_check)
         hbox.addWidget(self.iv_call_check)
+        hbox.addWidget(self.iv_level_check)
         hbox.addWidget(QtWidgets.QLabel("透明度"))
         hbox.addWidget(self.iv_alpha_spin)
         hbox.addWidget(self.trend_check)
@@ -336,6 +347,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].show_atm = self.iv_atm_check.isChecked()
         chart._items["otm_strike_iv"].show_put = self.iv_put_check.isChecked()
         chart._items["otm_strike_iv"].show_call = self.iv_call_check.isChecked()
+        chart._items["otm_strike_iv"].show_atm_level = self.iv_level_check.isChecked()
         # wire the trend overlay: y-range delegation + current toggle states
         trend_item = chart._items["trend"]
         trend_item.candle_item = chart._items["candle"]
@@ -385,6 +397,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
                     self.iv_atm_check.isChecked(),
                     self.iv_put_check.isChecked(),
                     self.iv_call_check.isChecked(),
+                    self.iv_level_check.isChecked(),
                 )
             chart._update_y_range()
 
