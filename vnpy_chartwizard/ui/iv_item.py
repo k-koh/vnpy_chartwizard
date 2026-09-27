@@ -5,7 +5,8 @@ import math
 import pyqtgraph as pg
 
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, YELLOW_COLOR, WHITE_COLOR, BLUE_COLOR, \
-    GREEN_COLOR, ORANGE_COLOR, RED_COLOR, MAGENTA_COLOR, SPRING_GREEN_COLOR, IV_RANGE_WIDTH
+    GREEN_COLOR, ORANGE_COLOR, RED_COLOR, MAGENTA_COLOR, SPRING_GREEN_COLOR, \
+    GREY_COLOR, IV_RANGE_WIDTH
 from vnpy.chart.item import ChartItem
 from vnpy.trader.constant import OptionPrevIvType
 from vnpy.trader.database import DB_TZ
@@ -45,6 +46,11 @@ class IvItem(ChartItem):
         super().__init__(manager)
 
         self.base_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)
+        # 基準が切り替わった足の区切り線。株価チャートの市場時間線と同じ
+        # グレーの破線にして、IVの線と混ざらないようにする。
+        self.session_pen: QtGui.QPen = pg.mkPen(color=GREY_COLOR, width=PEN_WIDTH)
+        self.session_pen.setStyle(QtCore.Qt.DashLine)
+
         # 0 baseline: yellow dotted, matching CandleItem's base line
         self.zero_pen: QtGui.QPen = pg.mkPen(color=YELLOW_COLOR, width=PEN_WIDTH)
         self.zero_pen.setStyle(QtCore.Qt.DotLine)
@@ -70,6 +76,18 @@ class IvItem(ChartItem):
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
         self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_STRIKE
+
+        # 何営業日前の引けと比べるか。1 = 直近の引け。
+        self.prev_days_back: int = 1
+
+        # 基準日の取り方。
+        #   True  … 全バー共通で1本に固定（現在から prev_days_back 本前の引け）。
+        #           履歴も今日も同じ0基準に並ぶので、そのまま数日〜数週間の
+        #           IV水準のトレンドになる。
+        #   False … 各足がそれぞれの前日（エントリー判定と同じ「前日比」）。
+        #           1日の中の動きは正確だが、毎日0から描き直されるため、
+        #           日をまたいだ水準の動きは見えない。
+        self.fixed_reference: bool = True
 
         # Whether the delta 0.02 (d002) put/call IV series are drawn and
         # included in the y-range. Toggled from the chart toolbar checkbox.
@@ -143,12 +161,19 @@ class IvItem(ChartItem):
         # 分。プラスなら今日そのものボラが買われている。
         self.atm_level_iv: Dict[int, float] = {}
         self.n225_vi: Dict[int, float] = {}
+
+        # 各足が 0 の基準にしている日足スナップショットの時刻。ここが1本前と
+        # 変わった足で、バーが0から描き直される。
+        self.prev_ref_dates: Dict[int, datetime] = {}
         # atm_iv 年率から日率に変換
         self.atm_iv_daily: Dict[int, float] = {}
 
         # Retry tracking: if init produced all-zero values (prev-day data
         # not yet loaded), allow re-init on next access
         self._last_init_attempt: datetime | None = None
+
+        # Y範囲の直しを1回だけ予約するための印（_ensure_y_range 参照）
+        self._pending_y_range: bool = False
 
 
     def get_prev_day_option_iv(self, vt_symbol: str, prev_iv_type: OptionPrevIvType, put_strike: int, call_strike: int,
@@ -164,7 +189,8 @@ class IvItem(ChartItem):
                 put_strike,
                 call_strike,
                 atm_strike,
-                dt
+                dt,
+                self.prev_days_back
             )
             return p_iv, c_iv, a_iv
         else:
@@ -216,6 +242,7 @@ class IvItem(ChartItem):
         self.delta002_c_delta.clear()
         self.atm_iv.clear()
         self.atm_level_iv.clear()
+        self.prev_ref_dates.clear()
         self.atm_iv_daily.clear()
         self.n225_vi.clear()
         self.iv_ranges.clear()
@@ -260,13 +287,15 @@ class IvItem(ChartItem):
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
                 atm_price = round(bar.close_price / 1000) * 1000
+                ref_dt: datetime = dt if self.fixed_reference else bar.datetime
+                self.prev_ref_dates[n] = self.reference_datetime(ref_dt)
                 prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                     bar.vt_symbol,
                     self.prev_iv_type,
                     bar.eris_p_strike,
                     bar.eris_c_strike,
                     atm_price,
-                    bar.datetime
+                    ref_dt
                 )
                 prev_d002_p_iv, prev_d002_c_iv, _ = self.get_prev_day_option_iv(
                     bar.vt_symbol,
@@ -274,7 +303,7 @@ class IvItem(ChartItem):
                     bar.delta002_p_strike,
                     bar.delta002_c_strike,
                     atm_price,
-                    bar.datetime
+                    ref_dt
                 )
                 prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
@@ -323,13 +352,15 @@ class IvItem(ChartItem):
             bar = self._manager.get_bar(ix)
             atm_price = round(bar.close_price / 1000) * 1000
             dt: datetime = datetime.now(DB_TZ)
+            ref_dt: datetime = dt if self.fixed_reference else bar.datetime
+            self.prev_ref_dates[ix] = self.reference_datetime(ref_dt)
             prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
                 self.prev_iv_type,
                 bar.eris_p_strike,
                 bar.eris_c_strike,
                 atm_price,
-                bar.datetime
+                ref_dt
             )
             prev_d002_p_iv, prev_d002_c_iv, _ = self.get_prev_day_option_iv(
                 bar.vt_symbol,
@@ -337,7 +368,7 @@ class IvItem(ChartItem):
                 bar.delta002_p_strike,
                 bar.delta002_c_strike,
                 atm_price,
-                bar.datetime
+                ref_dt
             )
             prev_n225_vi = self.get_prev_day_n225_vi(dt)
 
@@ -420,6 +451,17 @@ class IvItem(ChartItem):
 
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
+
+        # 基準が1本前と変わった足 = ここでバーが0から描き直される。足の開始位置
+        # （左端）に区切り線を引く。基準固定のときは基準が1本なので出ない。
+        reference = self.prev_ref_dates.get(ix)
+        previous_reference = self.prev_ref_dates.get(ix - 1)
+        if reference and previous_reference and reference != previous_reference:
+            painter.setPen(self.session_pen)
+            painter.drawLine(
+                QtCore.QPointF(ix - 0.5, -999999),
+                QtCore.QPointF(ix - 0.5, 999999),
+            )
 
         # 0 baseline
         painter.setPen(self.zero_pen)
@@ -561,6 +603,53 @@ class IvItem(ChartItem):
         # print(f"get_y_range: {min_ix} - {max_ix} : {min_iv} - {max_iv}")
         return min_iv, max_iv
 
+    def _fill_range(self, first: int, last: int) -> None:
+        """[first, last] のバーの値を、まだ無ければ計算しておく。
+
+        範囲を測るのは「これから描く値」に対してなので、キャッシュが
+        部分的だと大きい値を取りこぼして軸が足りなくなる。
+        """
+        count: int = self._manager.get_count()
+        if count <= 0:
+            return
+        last = min(last, count - 1)
+        for ix in range(max(0, first), last + 1):
+            if ix not in self.eris_p_iv:
+                self.get_impv_values(ix)
+
+    def _values_in(self, data: Dict[int, float], first: int, last: int) -> list[float]:
+        """[first, last] のバーの値。位置ではなくキーで引く。
+
+        辞書は普通 0..N の順に入るが、一部だけ作り直されると歯抜けや
+        並びのずれが起こり得る。位置でスライスすると別のバーを読んでしまう
+        （開始が負だと末尾から数えて空になる）ので、キーで引く。
+        """
+        return [value for ix in range(first, last + 1)
+                if (value := data.get(ix)) is not None]
+
+    def _drawn_value_bounds(self, first: int, last: int) -> tuple[float, float] | None:
+        """いま描いている系列の、その範囲での最小・最大。
+
+        表示中の系列だけを見るので、「棒は出ているのに軸に入っていない」
+        という状態をそのまま検出できる。
+        """
+        series: list[tuple[Dict[int, float], bool]] = [
+            (self.eris_p_iv, self.show_put),
+            (self.eris_c_iv, self.show_call),
+            (self.atm_iv, self.show_atm),
+            (self.atm_level_iv, self.show_atm_level),
+            (self.delta002_p_iv, self.show_delta002),
+            (self.delta002_c_iv, self.show_delta002),
+        ]
+        self._fill_range(first, last)
+        values: list[float] = []
+        for data, shown in series:
+            if shown:
+                values += self._values_in(data, first, last)
+        if not values:
+            return None
+        return min(values), max(values)
+
     def get_iv_range(self, min_ix: float | None = None, max_ix: float | None = None) -> tuple[float, float]:
         """
         Get iv range to show within given index range.
@@ -571,14 +660,16 @@ class IvItem(ChartItem):
         if not self.eris_p_iv:
             return -3.0, 3.0
 
-        cnt = len(self.eris_p_iv)
+        # 値はキーで引くので、窓は「最大の添字」で切る。件数（len）で切ると、
+        # 窓のぶんだけ計算した歯抜け状態で添字より小さくなり、窓が消えて
+        # 既定値（±3）に落ちてしまう。
+        last_ix: int = max(self.eris_p_iv)
         if min_ix is None or max_ix is None:
             min_ix = 0
-            max_ix = cnt - 1
+            max_ix = last_ix
         else:
-            min_ix = to_int(min_ix)
-            max_ix = to_int(max_ix)
-            max_ix = min(max_ix, cnt - 1)
+            min_ix = max(0, to_int(min_ix))
+            max_ix = min(to_int(max_ix), last_ix)
 
         if min_ix > max_ix:
             return -3.0, 3.0
@@ -587,24 +678,28 @@ class IvItem(ChartItem):
         if buf:
             return buf
 
-        p_iv_values = list(self.eris_p_iv.values())[min_ix:max_ix + 1]
+        # 測る前に窓のぶんを揃える。ここが歯抜けだと、描かれる大きい値を
+        # 数え落として軸が足りなくなる。
+        self._fill_range(min_ix, max_ix)
+
+        p_iv_values = self._values_in(self.eris_p_iv, min_ix, max_ix) or [0.0]
         p_iv_min = min(p_iv_values)
         p_iv_max = max(p_iv_values)
 
-        c_iv_values = list(self.eris_c_iv.values())[min_ix:max_ix + 1]
+        c_iv_values = self._values_in(self.eris_c_iv, min_ix, max_ix) or [0.0]
         c_iv_min = min(c_iv_values)
         c_iv_max = max(c_iv_values)
 
-        d002_p_values = list(self.delta002_p_iv.values())[min_ix:max_ix + 1] or [0.0]
+        d002_p_values = self._values_in(self.delta002_p_iv, min_ix, max_ix) or [0.0]
         d002_p_min = min(d002_p_values)
         d002_p_max = max(d002_p_values)
 
-        d002_c_values = list(self.delta002_c_iv.values())[min_ix:max_ix + 1] or [0.0]
+        d002_c_values = self._values_in(self.delta002_c_iv, min_ix, max_ix) or [0.0]
         d002_c_min = min(d002_c_values)
         d002_c_max = max(d002_c_values)
 
 
-        atm_iv_values = list(self.atm_iv.values())[min_ix:max_ix + 1] or [0.0]
+        atm_iv_values = self._values_in(self.atm_iv, min_ix, max_ix) or [0.0]
         atm_iv_min = min(atm_iv_values)
         atm_iv_max = max(atm_iv_values)
 
@@ -612,14 +707,20 @@ class IvItem(ChartItem):
         # n225_vi_min = min(n225_vi_values)
         # n225_vi_max = max(n225_vi_values)
 
-        atm_iv_daily_values = list(self.atm_iv_daily.values())[min_ix:max_ix + 1]
+        atm_iv_daily_values = self._values_in(self.atm_iv_daily, min_ix, max_ix) or [0.0]
         atm_iv_daily_max = max(atm_iv_daily_values) * 0.5 # atm_iv_daily upper line
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
-        level_values = list(self.atm_level_iv.values())[min_ix:max_ix + 1] or [0.0]
+        level_values = self._values_in(self.atm_level_iv, min_ix, max_ix) or [0.0]
 
-        min_candidates: list[float] = [p_iv_min, c_iv_min, atm_iv_min, atm_iv_daily_min]
-        max_candidates: list[float] = [p_iv_max, c_iv_max, atm_iv_max, atm_iv_daily_max]
+        # σバンド（atm_iv_daily）はATMの表示に関係なく引くので常に入れるが、
+        # ATMの棒自体は非表示なら軸を決めない（見えていない系列で軸が広がると、
+        # 表示中の棒が潰れてしまう）。
+        min_candidates: list[float] = [p_iv_min, c_iv_min, atm_iv_daily_min]
+        max_candidates: list[float] = [p_iv_max, c_iv_max, atm_iv_daily_max]
+        if self.show_atm:
+            min_candidates.append(atm_iv_min)
+            max_candidates.append(atm_iv_max)
         if self.show_atm_level:
             min_candidates.append(min(level_values))
             max_candidates.append(max(level_values))
@@ -645,6 +746,7 @@ class IvItem(ChartItem):
             return
         self.show_delta002 = show
         self.iv_ranges.clear()
+        self.refresh_y_range()
         # Invalidate cached bar pictures WITHOUT dropping the keys: the base
         # paint loop indexes _bar_picutures[ix] and bounds max_ix by its len,
         # so clearing the dict would blank the whole item.
@@ -665,6 +767,9 @@ class IvItem(ChartItem):
         # len, so the keys must stay — only the pictures are dropped.
         self._bar_picutures = {ix: None for ix in self._bar_picutures}
         self._item_picuture = None
+        # boundingRect は IV の範囲から作っているので、値が変わったことを
+        # Qt に伝えないと古い矩形のまま（＝はみ出した分が描かれない）。
+        self.prepareGeometryChange()
         self.update()
 
     def set_fill_alpha(self, alpha: float) -> None:
@@ -686,6 +791,41 @@ class IvItem(ChartItem):
         ) = state
         self.iv_ranges.clear()      # 面の上下 takes part in the y-range
         self._invalidate()
+        self.refresh_y_range()
+
+    def set_fixed_reference(self, fixed: bool) -> None:
+        """基準日を全バー共通の1本にするか、各足の前日にするか。"""
+        if self.fixed_reference == fixed:
+            return
+        self.fixed_reference = fixed
+        self._clear_cache()
+        self._invalidate()
+        self.refresh_y_range()
+
+    def reference_datetime(self, dt: "datetime | None" = None) -> "datetime | None":
+        """`dt` の足が 0 の基準にしている日足スナップショットの時刻。
+
+        省略時は現在時刻。基準固定のときは全足これになる。
+        """
+        main_engine = self._manager.main_engine
+        option_engine = main_engine.get_engine(OPTION_APP_NAME)
+        if not option_engine:
+            return None
+        return option_engine.prev_day_option.get_prev_day_datetime(
+            dt or datetime.now(DB_TZ), self.prev_days_back
+        )
+
+    def set_prev_days_back(self, days: int) -> None:
+        """比較先を「N営業日前の引け」に変える（1なら前日比）。
+
+        全バーの値が変わるので、キャッシュを捨てて引き直す。
+        """
+        if self.prev_days_back == days:
+            return
+        self.prev_days_back = days
+        self._clear_cache()
+        self._invalidate()
+        self.refresh_y_range()
 
     def set_show_strike_roll(self, show: bool) -> None:
         """Toggle the strike-roll (prev|now) labels."""
@@ -694,9 +834,93 @@ class IvItem(ChartItem):
         self.show_strike_roll = show
         self.update()
 
+    def _apply_y_range(self, view_box, low: float, high: float) -> None:
+        """Y範囲を当てる。描画の外で、上下限を広げてから。
+
+        ChartWidget が update_history のときに入れたY方向の上下限は、値が
+        総入れ替えになっても古いまま残る。pyqtgraph はその上下限で
+        setYRange を切り詰めるので、先に今の全データぶんまで広げておく。
+        """
+        self._pending_y_range = True
+
+        def apply() -> None:
+            self._pending_y_range = False
+            full_low, full_high = self.get_iv_range()
+            view_box.setLimits(
+                yMin=min(full_low, low), yMax=max(full_high, high)
+            )
+            view_box.setYRange(low, high, padding=0)
+
+        QtCore.QTimer.singleShot(0, apply)
+
+    def refresh_y_range(self) -> None:
+        """今の値に合わせてY範囲を引き直す（広げるだけでなく縮めもする）。
+
+        設定を変えると全バーの値が入れ替わるので、はみ出し判定ではなく
+        無条件に合わせる。Qt はペイント中のビュー変更を受け付けないことが
+        あるため、適用はイベントループに逃がす。
+        """
+        view_box = self.getViewBox()
+        if view_box is None:
+            return
+
+        (x_min, x_max), _ = view_box.viewRange()
+        first: int = max(0, int(x_min))
+        last: int = int(x_max)
+
+        low, high = self.get_iv_range(first, last)
+        bounds = self._drawn_value_bounds(first, last)
+        if bounds is not None:
+            low = min(low, bounds[0])
+            high = max(high, bounds[1])
+        span: float = high - low
+        pad: float = span * 0.08 if span > 0 else 0.1
+        low -= pad
+        high += pad
+        self._apply_y_range(view_box, low, high)
+
+    def _ensure_y_range(self) -> None:
+        """今描いている値がY軸に収まっていなければ、その場で範囲を直す。
+
+        基準固定の切替などで全バーの値が一気に変わったとき、範囲の更新が
+        取りこぼされると棒が切れたままになる。収まっていれば何もしないので、
+        普段の描画には効かない（収まった次の描画で呼ばれても何もしない）。
+        """
+        view_box = self.getViewBox()
+        if view_box is None or not self.eris_p_iv:
+            return
+
+        (x_min, x_max), (y_min, y_max) = view_box.viewRange()
+        # ビューの左端は余白の分だけ負になる（-1.0 など）
+        first: int = max(0, int(x_min))
+        last: int = int(x_max)
+
+        # 判断は「実際に描いた値」で行う。範囲の計算（get_iv_range）と
+        # 描画がどこかで食い違っていても、棒が切れたままにはならない。
+        bounds = self._drawn_value_bounds(first, last)
+        if bounds is None:
+            return
+        drawn_low, drawn_high = bounds
+        margin: float = max(abs(drawn_high - drawn_low), 1.0) * 0.01
+        if drawn_low >= y_min - margin and drawn_high <= y_max + margin:
+            return
+
+        low, high = self.get_iv_range(first, last)
+        # 範囲の計算が描いた値を覆えていない場合も、そのまま合わせる。
+        low = min(low, drawn_low)
+        high = max(high, drawn_high)
+        span: float = high - low
+        pad: float = span * 0.08 if span > 0 else 0.1
+        # ペイント中にビューの範囲を変えても Qt に受け付けてもらえないこと
+        # があるので、描画が終わってから適用する。予約は1つだけ持つ。
+        if self._pending_y_range:
+            return
+        self._apply_y_range(view_box, low - pad, high + pad)
+
     def paint(self, painter, opt, w) -> None:
         """Draw the item, then (re)position the latest-point value labels."""
         super().paint(painter, opt, w)
+        self._ensure_y_range()
         self._update_value_labels()
         self._update_roll_labels()
         self._update_sigma_labels()
@@ -1260,6 +1484,12 @@ class IvItem(ChartItem):
             if self.show_delta002:
                 words.append(call002)
 
+            if self.fixed_reference:
+                # 0がどの日かは読むうえで必須なので、カーソル情報に出す
+                reference = self.reference_datetime()
+                if reference is not None:
+                    words.append(f"基準 {reference:%m/%d} 引け")
+
             text: str = "\n".join(words)
         else:
             text = "IV -"
@@ -1280,5 +1510,6 @@ class IvItem(ChartItem):
         self.delta002_c_delta.clear()
         self.atm_iv.clear()
         self.atm_level_iv.clear()
+        self.prev_ref_dates.clear()
         self.iv_ranges.clear()
         super().clear_all()

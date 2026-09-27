@@ -26,6 +26,9 @@ _CARRY_FIELDS: tuple[str, ...] = (
     "delta002_p_strike", "delta002_p_iv", "delta002_p_delta",
     "delta002_c_strike", "delta002_c_iv", "delta002_c_delta",
     "atm_iv", "atm_level_iv", "n225_vi",
+    "atm_buy_volume", "atm_sell_volume",
+    "eris_p_buy_volume", "eris_p_sell_volume",
+    "eris_c_buy_volume", "eris_c_sell_volume",
 )
 
 

@@ -169,7 +169,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
             Interval.MINUTE,
             Interval.MINUTE3,
             Interval.MINUTE5,
-            Interval.MINUTE6,
             Interval.MINUTE10,
             Interval.MINUTE15,
             Interval.MINUTE20,
@@ -189,7 +188,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
         self.days_spin.setMinimum(3)
         self.days_spin.setMaximum(365)
-        self.days_spin.setValue(7)
+        self.days_spin.setValue(14)
         self.days_spin.setSuffix("日")
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
@@ -215,7 +214,10 @@ class ChartWizardWidget(QtWidgets.QWidget):
             self.iv_atm_check, self.iv_put_check,
             self.iv_call_check, self.iv_level_check,
         ):
-            box.setChecked(True)
+            # ATM と 面の上下 は互いにほぼ重なるので、既定では両方とも
+            # 出さず、ウィング（Put / Call）だけを出す。
+            # 初期値は connect の前に入れる。
+            box.setChecked(box not in (self.iv_atm_check, self.iv_level_check))
             box.setToolTip("IVパネルのこの系列の表示/非表示")
             box.toggled.connect(self._on_iv_series_toggled)
 
@@ -229,6 +231,33 @@ class ChartWizardWidget(QtWidgets.QWidget):
             "IVバーの塗りの不透明度。小さいほど重なった系列が透けて見えます。"
         )
         self.iv_alpha_spin.valueChanged.connect(self._on_iv_alpha_changed)
+
+        # 比較先の営業日数。1 = 前日比（毎日0から描き直される）。数日単位で
+        # IV水準がどちらに動いたかを見たいときに増やす。
+        self.prev_days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
+        self.prev_days_spin.setRange(1, 20)
+        self.prev_days_spin.setValue(1)
+        self.prev_days_spin.setPrefix("基準")
+        self.prev_days_spin.setSuffix("日前")
+        self.prev_days_spin.setFixedWidth(85)
+        self.prev_days_spin.setToolTip(
+            "IVを何営業日前の引けと比べるか。\n"
+            "1なら前日比（毎日0から描き直し）。5にすると、バーの高さが\n"
+            "「5営業日前に対して今どれだけ上下にいるか」になります。"
+        )
+        self.prev_days_spin.valueChanged.connect(self._on_prev_days_changed)
+
+        # 基準日を全バー共通に固定するか（既定）、各足の前日にするか。
+        self.fixed_ref_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("基準固定")
+        self.fixed_ref_check.setChecked(True)
+        self.fixed_ref_check.setToolTip(
+            "ON : 全バーを同じ1本の引け（上の基準日）を0として描く。\n"
+            "     履歴も今日も同じ0基準なので、数日〜数週間のIV水準の\n"
+            "     トレンドがそのまま読めます。\n"
+            "OFF: 各足をそれぞれの前日と比べる（エントリー判定と同じ前日比）。\n"
+            "     1日の中の動きは正確ですが、毎日0から描き直されます。"
+        )
+        self.fixed_ref_check.toggled.connect(self._on_fixed_ref_toggled)
 
         # Toggle the strike-roll (prev|now) labels on the IV subplot.
         self.strike_roll_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("行使価格変更")
@@ -306,6 +335,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.iv_level_check)
         hbox.addWidget(QtWidgets.QLabel("透明度"))
         hbox.addWidget(self.iv_alpha_spin)
+        hbox.addWidget(self.prev_days_spin)
+        hbox.addWidget(self.fixed_ref_check)
         hbox.addWidget(self.trend_check)
         hbox.addWidget(self.cursor_check)
         hbox.addWidget(self.last_price_check)
@@ -348,6 +379,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].show_put = self.iv_put_check.isChecked()
         chart._items["otm_strike_iv"].show_call = self.iv_call_check.isChecked()
         chart._items["otm_strike_iv"].show_atm_level = self.iv_level_check.isChecked()
+        chart._items["otm_strike_iv"].prev_days_back = self.prev_days_spin.value()
+        chart._items["otm_strike_iv"].fixed_reference = self.fixed_ref_check.isChecked()
         # wire the trend overlay: y-range delegation + current toggle states
         trend_item = chart._items["trend"]
         trend_item.candle_item = chart._items["candle"]
@@ -379,6 +412,22 @@ class ChartWizardWidget(QtWidgets.QWidget):
             if isinstance(item, IvItem):
                 item.set_show_delta002(checked)
             # Recompute the IV subplot y-range for the new visibility.
+            chart._update_y_range()
+
+    def _on_fixed_ref_toggled(self, checked: bool) -> None:
+        """基準日を全バー共通に固定するか、各足の前日にするか。"""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.set_fixed_reference(checked)
+            chart._update_y_range()
+
+    def _on_prev_days_changed(self, value: int) -> None:
+        """IVの比較先を N営業日前 に変える（1なら前日比）。"""
+        for chart in self.charts.values():
+            item = chart._items.get("otm_strike_iv")
+            if isinstance(item, IvItem):
+                item.set_prev_days_back(value)
             chart._update_y_range()
 
     def _on_strike_roll_toggled(self, checked: bool) -> None:
