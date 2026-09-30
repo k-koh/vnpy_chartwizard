@@ -182,7 +182,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.MINUTE15)
+            self.interval_combo.findData(Interval.MINUTE30)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
