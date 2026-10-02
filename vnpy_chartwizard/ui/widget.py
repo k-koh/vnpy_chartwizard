@@ -8,6 +8,7 @@ from vnpy.trader.constant import PriceType, CandleColor, OptionType, OptionPrevI
 from vnpy.event import EventEngine, Event
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
 from vnpy.chart.item import ChartItem
+from vnpy.chart.base import NORMAL_FONT
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import QtWidgets, QtCore
 from vnpy.trader.event import EVENT_TICK
@@ -19,7 +20,7 @@ from vnpy_spreadtrading.base import SpreadItem, EVENT_SPREAD_DATA
 from .rsi_item import RsiItem
 from .sma_item import SmaItem
 from .vqi_item import VqiItem
-from .iv_item import IvItem
+from .iv_item import IvItem, IvAxisItem
 from .trend_item import TrendLineItem
 from vnpy_optionmaster.base import (
     APP_NAME as OPTION_APP_NAME,
@@ -276,7 +277,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         # Auto pivot trend lines (support/resistance) on the candle chart.
         self.trend_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("トレンドライン")
-        self.trend_check.setChecked(True)
+        self.trend_check.setChecked(False)
         self.trend_check.toggled.connect(self._on_trend_toggled)
 
         # Show/hide the cursor cross-hair lines + labels (candle/iv_item/volume).
@@ -357,6 +358,18 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart.add_plot("candle", hide_x_axis=True)
         chart.add_plot("otm_strike_iv", maximum_height=800, hide_x_axis=True)
         chart.add_plot("volume", maximum_height=100)
+
+        # IVパネルの右目盛りは0.5刻み＋薄い横線にする（エントリー判定の
+        # 前日比IVと同じ読み方ができるように）。目盛りを差し替えるので、
+        # add_plot が右軸に入れていた幅と字体はここで入れ直す。
+        iv_plot: pg.PlotItem = chart._plots["otm_strike_iv"]
+        iv_plot.setAxisItems({"right": IvAxisItem(orientation="right")})
+        iv_axis: pg.AxisItem = iv_plot.getAxis("right")
+        iv_axis.setWidth(60)
+        iv_axis.tickFont = NORMAL_FONT
+        iv_axis.setStyle(tickFont=NORMAL_FONT)
+        iv_axis.setGrid(28)                 # 0〜255。足や±0.5σ線より薄く
+        iv_plot.hideAxis("left")
 
         chart.add_item(CandleItem, "candle", "candle")
         # Trend-line overlay shares the candle plot (added after candle so it

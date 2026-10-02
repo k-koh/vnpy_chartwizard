@@ -17,6 +17,23 @@ from vnpy_optionmaster.engine import OptionEngine
 from vnpy_optionmaster.base import APP_NAME as OPTION_APP_NAME
 
 
+class IvAxisItem(pg.AxisItem):
+    """前日比IVの目盛り。見える幅が狭いうちは0.5刻みで数値を振る。
+
+    既定の自動刻みだと1.0や2.0刻みになって、0.5pt単位の動きが読みにくい。
+    エントリー判定の前日比IVと同じ刻みに揃える。幅が広いとき（基準N日前を
+    大きくしたときなど）は、数値が潰れないよう自動に戻す。
+    """
+
+    # 0.5刻みで出してよい見える幅（IVポイント）。これを超えたら自動。
+    HALF_STEP_SPAN: float = 14.0
+
+    def tickSpacing(self, minVal: float, maxVal: float, size: float) -> list:
+        if abs(maxVal - minVal) <= self.HALF_STEP_SPAN:
+            return [(0.5, 0.0)]
+        return super().tickSpacing(minVal, maxVal, size)
+
+
 @dataclass
 class IvDrawItem:
     value: float
@@ -165,6 +182,9 @@ class IvItem(ChartItem):
         # 各足が 0 の基準にしている日足スナップショットの時刻。ここが1本前と
         # 変わった足で、バーが0から描き直される。
         self.prev_ref_dates: Dict[int, datetime] = {}
+        # 基準固定とは関係なく、その足が本来くらべる引けの時刻。基準固定の
+        # ときに「0 がどこに置かれているか」の線を引く位置を出すのに使う。
+        self.own_ref_dates: Dict[int, datetime] = {}
         # atm_iv 年率から日率に変換
         self.atm_iv_daily: Dict[int, float] = {}
 
@@ -243,6 +263,7 @@ class IvItem(ChartItem):
         self.atm_iv.clear()
         self.atm_level_iv.clear()
         self.prev_ref_dates.clear()
+        self.own_ref_dates.clear()
         self.atm_iv_daily.clear()
         self.n225_vi.clear()
         self.iv_ranges.clear()
@@ -284,11 +305,18 @@ class IvItem(ChartItem):
             # datetime で引く（下）。now で引くと、今日の15:45が書かれた後は
             # 日中のバーまで「今日の引け」と比べてしまい、符号ごと変わる。
             dt: datetime = datetime.now(DB_TZ)
+            fixed_ref = (
+                self.reference_datetime(dt) if self.fixed_reference else None
+            )
             bars = self._manager.get_all_bars()
             for n, bar in enumerate(bars):
                 atm_price = round(bar.close_price / 1000) * 1000
                 ref_dt: datetime = dt if self.fixed_reference else bar.datetime
-                self.prev_ref_dates[n] = self.reference_datetime(ref_dt)
+                own_ref = self.reference_datetime(bar.datetime)
+                self.own_ref_dates[n] = own_ref
+                self.prev_ref_dates[n] = (
+                    fixed_ref if self.fixed_reference else own_ref
+                )
                 prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                     bar.vt_symbol,
                     self.prev_iv_type,
@@ -353,7 +381,11 @@ class IvItem(ChartItem):
             atm_price = round(bar.close_price / 1000) * 1000
             dt: datetime = datetime.now(DB_TZ)
             ref_dt: datetime = dt if self.fixed_reference else bar.datetime
-            self.prev_ref_dates[ix] = self.reference_datetime(ref_dt)
+            own_ref = self.reference_datetime(bar.datetime)
+            self.own_ref_dates[ix] = own_ref
+            self.prev_ref_dates[ix] = (
+                self.reference_datetime(dt) if self.fixed_reference else own_ref
+            )
             prev_p_iv, prev_c_iv, prev_a_iv = self.get_prev_day_option_iv(
                 bar.vt_symbol,
                 self.prev_iv_type,
@@ -453,10 +485,24 @@ class IvItem(ChartItem):
         painter = QtGui.QPainter(picture)
 
         # 基準が1本前と変わった足 = ここでバーが0から描き直される。足の開始位置
-        # （左端）に区切り線を引く。基準固定のときは基準が1本なので出ない。
+        # （左端）に区切り線を引く。基準固定のときは全足が同じ引けを 0 に
+        # するので、代わりに「その引けの直後の足」に1本だけ引く。右側が
+        # 基準より後、左側が基準より前。線は OFF のときと同じ破線。
         reference = self.prev_ref_dates.get(ix)
         previous_reference = self.prev_ref_dates.get(ix - 1)
-        if reference and previous_reference and reference != previous_reference:
+        if self.fixed_reference:
+            own_reference = self.own_ref_dates.get(ix)
+            previous_own = self.own_ref_dates.get(ix - 1)
+            divider: bool = bool(
+                reference and own_reference and previous_own
+                and own_reference >= reference > previous_own
+            )
+        else:
+            divider = bool(
+                reference and previous_reference
+                and reference != previous_reference
+            )
+        if divider:
             painter.setPen(self.session_pen)
             painter.drawLine(
                 QtCore.QPointF(ix - 0.5, -999999),
@@ -1404,9 +1450,9 @@ class IvItem(ChartItem):
         last_ix: int = max(self.eris_p_iv.keys())
         # (key, data dict, colour, short tag, visible)
         specs: list[tuple[str, Dict[int, float], tuple, str, bool]] = [
-            ("eris_p", self.eris_p_iv, DOWN_COLOR, "P", True),
-            ("eris_c", self.eris_c_iv, RED_COLOR, "C", True),
-            ("atm", self.atm_iv, WHITE_COLOR, "A", True),
+            ("eris_p", self.eris_p_iv, DOWN_COLOR, "P", self.show_put),
+            ("eris_c", self.eris_c_iv, RED_COLOR, "C", self.show_call),
+            ("atm", self.atm_iv, WHITE_COLOR, "A", self.show_atm),
             ("atm_level", self.atm_level_iv, SPRING_GREEN_COLOR, "面", self.show_atm_level),
             ("d002_p", self.delta002_p_iv, BLUE_COLOR, "P2", self.show_delta002),
             ("d002_c", self.delta002_c_iv, YELLOW_COLOR, "C2", self.show_delta002),
@@ -1511,5 +1557,6 @@ class IvItem(ChartItem):
         self.atm_iv.clear()
         self.atm_level_iv.clear()
         self.prev_ref_dates.clear()
+        self.own_ref_dates.clear()
         self.iv_ranges.clear()
         super().clear_all()
