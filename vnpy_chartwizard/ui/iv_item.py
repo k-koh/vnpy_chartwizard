@@ -127,6 +127,10 @@ class IvItem(ChartItem):
         # created lazily once the item has a ViewBox).
         self._value_labels: Dict[str, pg.TextItem] = {}
 
+        # 先物の現在値が 0σ（前日の引け）から何σ離れているかのラベル。
+        # 先物パネルと同じ値を、IVを見ながら読めるようにここにも出す。
+        self._now_sigma_label: "pg.TextItem | None" = None
+
         # Reusable pool of strike-roll labels (pg.TextItem), positioned at the
         # visible roll bars each paint.
         self._roll_labels: list[pg.TextItem] = []
@@ -968,6 +972,7 @@ class IvItem(ChartItem):
         super().paint(painter, opt, w)
         self._ensure_y_range()
         self._update_value_labels()
+        self._update_now_sigma_label()
         self._update_roll_labels()
         self._update_sigma_labels()
         self._update_crash_labels()
@@ -1476,6 +1481,50 @@ class IvItem(ChartItem):
             # overlap the latest marker.
             label.setPos(last_ix + 0.6, value)
             label.show()
+
+    def _update_now_sigma_label(self) -> None:
+        """先物の現在値が 0σ（前日の引け）から何σ離れているかを右端に出す。
+
+        中身は先物パネルのσのはしごと同じ基準なので、`+1.0σ` の線に乗れば
+        `+1.00σ` になる。0σ の線と同じ黄色にして、IVの各系列と取り違えない
+        ようにしてある。置き場所は他の現在値ラベルと同じ、最後の足の右。
+        """
+        vb = self.getViewBox()
+        count: int = self._manager.get_count()
+        bar = self._manager.get_bar(count - 1) if count else None
+        base: float = bar.pre_close if bar and bar.pre_close > 0 else 0.0
+        daily: float = (bar.atm_iv / (252 ** 0.5)) if bar and bar.atm_iv else 0.0
+
+        if vb is None or base <= 0 or daily <= 0:
+            if self._now_sigma_label is not None:
+                self._now_sigma_label.hide()
+            return
+
+        sigma: float = (bar.close_price - base) / (base * daily)
+
+        if self._now_sigma_label is None:
+            label = pg.TextItem(color=YELLOW_COLOR, anchor=(0, 0.5))
+            # σ の字が出ない既定フォントを避けて、家族名を明示する。
+            label.setFont(QtGui.QFont("Arial", 8))
+            vb.addItem(label, ignoreBounds=True)
+            self._now_sigma_label = label
+
+        # σの値そのものを高さにする。PUT/CALL の前日比IVと同じ高さの物差しで
+        # 並ぶので、どちらが先行しているかを目で比べられる（単位は σ と
+        # IVポイントで違うが、見比べるための置き方）。軸の外に出たときは
+        # 端で止めて、はみ出していることを矢印で示す。
+        text: str = f"{sigma:+.2f}σ"
+        pos_y: float = sigma
+        y_low, y_high = vb.viewRange()[1]
+        if sigma > y_high:
+            pos_y, text = y_high, f"↑{text}"
+        elif sigma < y_low:
+            pos_y, text = y_low, f"↓{text}"
+
+        label = self._now_sigma_label
+        label.setText(text)
+        label.setPos(count - 1 + 0.6, pos_y)
+        label.show()
 
     def get_info_text(self, ix: int) -> str:
         """"""
