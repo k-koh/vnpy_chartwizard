@@ -89,6 +89,9 @@ class IvItem(ChartItem):
         # インプライドボラティリティカーブの IV分解 と同じ緑。
         self.atm_level_pen: QtGui.QPen = pg.mkPen(color=SPRING_GREEN_COLOR, width=PEN_WIDTH)
         self.atm_level_brush: QtGui.QBrush = pg.mkBrush(color=SPRING_GREEN_COLOR)
+        # 先物σ。0σ の線と同じ黄色（エントリー判定のσの棒とも同じ色）。
+        self.sigma_pen: QtGui.QPen = pg.mkPen(color=YELLOW_COLOR, width=PEN_WIDTH)
+        self.sigma_brush: QtGui.QBrush = pg.mkBrush(color=YELLOW_COLOR)
 
         self.iv_ranges: dict[tuple[int, int], tuple[float, float]] = {}
 
@@ -122,6 +125,7 @@ class IvItem(ChartItem):
         self.show_put: bool = True
         self.show_call: bool = True
         self.show_atm_level: bool = True
+        self.show_sigma: bool = False
 
         # Value labels drawn beside each series' latest point (pg.TextItem,
         # created lazily once the item has a ViewBox).
@@ -181,6 +185,11 @@ class IvItem(ChartItem):
         # のうち、先物がスマイル上を滑っただけの見かけの変化（滑り）を除いた
         # 分。プラスなら今日そのものボラが買われている。
         self.atm_level_iv: Dict[int, float] = {}
+
+        # 先物が 0σ（前日終値）から何σ離れているか。IVではないが、滑りは
+        # これにほぼ比例するので、同じ物差しに並べて見比べられるようにする。
+        # 足の中の値だけで出せるので、DBの列は要らない。
+        self.sigma_values: Dict[int, float] = {}
         self.n225_vi: Dict[int, float] = {}
 
         # 各足が 0 の基準にしている日足スナップショットの時刻。ここが1本前と
@@ -266,6 +275,7 @@ class IvItem(ChartItem):
         self.delta002_c_delta.clear()
         self.atm_iv.clear()
         self.atm_level_iv.clear()
+        self.sigma_values.clear()
         self.prev_ref_dates.clear()
         self.own_ref_dates.clear()
         self.atm_iv_daily.clear()
@@ -370,6 +380,7 @@ class IvItem(ChartItem):
 
                 # atm_iv 年率から日率に変換
                 self.atm_iv_daily[n] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
+                self.sigma_values[n] = self._futures_sigma(bar)
 
                 iv = bar.n225_vi
                 self.n225_vi[n] = (iv - prev_n225_vi) if iv is not None and iv != 0 and prev_n225_vi else 0
@@ -439,6 +450,7 @@ class IvItem(ChartItem):
 
             # atm_iv 年率から日率に変換
             self.atm_iv_daily[ix] = iv * 100.0 / (252 ** 0.5) if iv is not None and iv != 0 else 0
+            self.sigma_values[ix] = self._futures_sigma(bar)
 
             iv = bar.n225_vi
             self.n225_vi[ix] = (iv - prev_n225_vi) if iv is not None and iv != 0 and prev_n225_vi else 0
@@ -483,6 +495,12 @@ class IvItem(ChartItem):
             series_points.append(
                 (self.atm_level_iv.get(ix, 0.0), self.atm_level_iv.get(ix - 1),
                  self.atm_level_pen, self.atm_level_brush, self.eris_a_strike)
+            )
+        if self.show_sigma:
+            # σは行使価格に紐づかないので、行使価格変更の破線は付けない
+            series_points.append(
+                (self.sigma_values.get(ix, 0.0), self.sigma_values.get(ix - 1),
+                 self.sigma_pen, self.sigma_brush, {})
             )
 
         picture = QtGui.QPicture()
@@ -667,6 +685,18 @@ class IvItem(ChartItem):
             if ix not in self.eris_p_iv:
                 self.get_impv_values(ix)
 
+    @staticmethod
+    def _futures_sigma(bar: BarData) -> float:
+        """先物が 0σ（前日の引け）から何σ離れているか。
+
+        先物パネルのσのはしごと同じ式。基準が無い足は 0（棒が出ない）。
+        """
+        base: float = bar.pre_close or 0.0
+        iv: float = getattr(bar, "atm_iv", 0) or 0.0
+        if base <= 0 or iv <= 0:
+            return 0.0
+        return (bar.close_price - base) / (base * iv / (252 ** 0.5))
+
     def _values_in(self, data: Dict[int, float], first: int, last: int) -> list[float]:
         """[first, last] のバーの値。位置ではなくキーで引く。
 
@@ -688,6 +718,7 @@ class IvItem(ChartItem):
             (self.eris_c_iv, self.show_call),
             (self.atm_iv, self.show_atm),
             (self.atm_level_iv, self.show_atm_level),
+            (self.sigma_values, self.show_sigma),
             (self.delta002_p_iv, self.show_delta002),
             (self.delta002_c_iv, self.show_delta002),
         ]
@@ -762,6 +793,7 @@ class IvItem(ChartItem):
         atm_iv_daily_min = -atm_iv_daily_max        # atm_iv_daily lower line
 
         level_values = self._values_in(self.atm_level_iv, min_ix, max_ix) or [0.0]
+        sigma_vals = self._values_in(self.sigma_values, min_ix, max_ix) or [0.0]
 
         # σバンド（atm_iv_daily）はATMの表示に関係なく引くので常に入れるが、
         # ATMの棒自体は非表示なら軸を決めない（見えていない系列で軸が広がると、
@@ -774,6 +806,9 @@ class IvItem(ChartItem):
         if self.show_atm_level:
             min_candidates.append(min(level_values))
             max_candidates.append(max(level_values))
+        if self.show_sigma:
+            min_candidates.append(min(sigma_vals))
+            max_candidates.append(max(sigma_vals))
         if self.show_delta002:
             min_candidates += [d002_p_min, d002_c_min]
             max_candidates += [d002_c_max, d002_p_max]
@@ -830,14 +865,17 @@ class IvItem(ChartItem):
         self._invalidate()
 
     def set_series_visible(
-        self, atm: bool, put: bool, call: bool, level: bool = True
+        self, atm: bool, put: bool, call: bool, level: bool = True,
+        sigma: bool = False
     ) -> None:
-        """Show/hide the ATM, Δ0.1 Put, Δ0.1 Call and ATM面の上下 bars."""
-        state = (atm, put, call, level)
-        if state == (self.show_atm, self.show_put, self.show_call, self.show_atm_level):
+        """Show/hide the ATM, Δ0.1 Put, Δ0.1 Call, ATM面の上下 and 先物σ bars."""
+        state = (atm, put, call, level, sigma)
+        if state == (self.show_atm, self.show_put, self.show_call,
+                     self.show_atm_level, self.show_sigma):
             return
         (
-            self.show_atm, self.show_put, self.show_call, self.show_atm_level
+            self.show_atm, self.show_put, self.show_call,
+            self.show_atm_level, self.show_sigma
         ) = state
         self.iv_ranges.clear()      # 面の上下 takes part in the y-range
         self._invalidate()
@@ -1047,6 +1085,7 @@ class IvItem(ChartItem):
         specs: list[tuple[Dict[int, float], tuple, bool]] = [
             (self.atm_iv, WHITE_COLOR, self.show_atm),
             (self.atm_level_iv, SPRING_GREEN_COLOR, self.show_atm_level),
+            (self.sigma_values, YELLOW_COLOR, self.show_sigma),
             (self.eris_p_iv, DOWN_COLOR, self.show_put),
             (self.eris_c_iv, RED_COLOR, self.show_call),
         ]
@@ -1576,6 +1615,8 @@ class IvItem(ChartItem):
             words += [put, atm, call]
             if self.show_atm_level:
                 words.append(level)
+            if self.show_sigma:
+                words.append(f"先物σ黄 {self.sigma_values.get(ix, 0.0):+.2f}")
             if self.show_delta002:
                 words.append(call002)
 
@@ -1605,6 +1646,7 @@ class IvItem(ChartItem):
         self.delta002_c_delta.clear()
         self.atm_iv.clear()
         self.atm_level_iv.clear()
+        self.sigma_values.clear()
         self.prev_ref_dates.clear()
         self.own_ref_dates.clear()
         self.iv_ranges.clear()

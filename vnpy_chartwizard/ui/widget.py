@@ -211,15 +211,28 @@ class ChartWizardWidget(QtWidgets.QWidget):
             "先物が動いてスマイル上を滑っただけの見かけの変化を除いた、\n"
             "ボラそのものが買われた／売られた分。"
         )
+        # 先物σ: 先物が 0σ（前日終値）から何σ離れているか。IVではないが、
+        # 滑りはこれにほぼ比例するので、同じ物差しに並べて見比べられる。
+        self.iv_sigma_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("σ")
+        self.iv_sigma_check.setToolTip(
+            "先物の現在値が 0σ（前日終値）から何σ離れているか。\n"
+            "σ = (現在値 − 前日終値) / (前日終値 × ATM日率IV)。\n"
+            "PUTの滑りはこのσにほぼ 1:1 で比例するので、PUTの棒が\n"
+            "この棒より伸びていれば、滑りでは説明できない買いが入っています。"
+        )
+
         for box in (
             self.iv_atm_check, self.iv_put_check,
-            self.iv_call_check, self.iv_level_check,
+            self.iv_call_check, self.iv_level_check, self.iv_sigma_check,
         ):
             # ATM と 面の上下 は互いにほぼ重なるので、既定では両方とも
             # 出さず、ウィング（Put / Call）だけを出す。
             # 初期値は connect の前に入れる。
-            box.setChecked(box not in (self.iv_atm_check, self.iv_level_check))
-            box.setToolTip("IVパネルのこの系列の表示/非表示")
+            box.setChecked(box not in (
+                self.iv_atm_check, self.iv_level_check, self.iv_sigma_check,
+            ))
+            if box is not self.iv_sigma_check:
+                box.setToolTip("IVパネルのこの系列の表示/非表示")
             box.toggled.connect(self._on_iv_series_toggled)
 
         self.iv_alpha_spin: QtWidgets.QDoubleSpinBox = QtWidgets.QDoubleSpinBox()
@@ -334,6 +347,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.iv_put_check)
         hbox.addWidget(self.iv_call_check)
         hbox.addWidget(self.iv_level_check)
+        hbox.addWidget(self.iv_sigma_check)
         hbox.addWidget(QtWidgets.QLabel("透明度"))
         hbox.addWidget(self.iv_alpha_spin)
         hbox.addWidget(self.prev_days_spin)
@@ -392,6 +406,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].show_put = self.iv_put_check.isChecked()
         chart._items["otm_strike_iv"].show_call = self.iv_call_check.isChecked()
         chart._items["otm_strike_iv"].show_atm_level = self.iv_level_check.isChecked()
+        chart._items["otm_strike_iv"].show_sigma = self.iv_sigma_check.isChecked()
         chart._items["otm_strike_iv"].prev_days_back = self.prev_days_spin.value()
         chart._items["otm_strike_iv"].fixed_reference = self.fixed_ref_check.isChecked()
         # wire the trend overlay: y-range delegation + current toggle states
@@ -460,6 +475,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
                     self.iv_put_check.isChecked(),
                     self.iv_call_check.isChecked(),
                     self.iv_level_check.isChecked(),
+                    self.iv_sigma_check.isChecked(),
                 )
             chart._update_y_range()
 
