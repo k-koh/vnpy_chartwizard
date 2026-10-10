@@ -157,7 +157,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2610.JPX", "nk-2611.JPX"])
+        self.symbol_line.addItems(["nk-2611.JPX", "nk-2612.JPX"])
 
         self.interval_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
         self.interval_combo.setSizeAdjustPolicy(
@@ -196,14 +196,20 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.button.clicked.connect(self.new_chart)
 
         # Toggle the delta 0.02 (d002) put/call IV series on the IV subplot.
-        self.d002_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Δ0.02")
-        self.d002_check.setChecked(False)
-        self.d002_check.toggled.connect(self._on_d002_toggled)
+        # Δ0.1 と同じく、プットとコールを別々に出し入れする。
+        self.d002_put_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Δ0.02Put")
+        self.d002_call_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Δ0.02Call")
+        for box in (self.d002_put_check, self.d002_call_check):
+            box.setChecked(False)
+            box.setToolTip("Δ0.02（Δ0.1より外側のウィング）の前日比IV")
+            box.toggled.connect(self._on_d002_toggled)
 
         # IV subplot: which series are drawn and how solid their fills are.
         self.iv_atm_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("ATM")
-        self.iv_put_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Put")
-        self.iv_call_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Call")
+        # Put / Call は Δ0.1 の系列。隣の Δ0.02 と並ぶので、どちらのデルタか
+        # 分かるように札にも入れておく。
+        self.iv_put_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Δ0.1Put")
+        self.iv_call_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Δ0.1Call")
         # ATM の面の上下: 前日比IVから「滑り」を除いた、ボラ水準そのものの動き
         self.iv_level_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("面")
         self.iv_level_check.setToolTip(
@@ -339,7 +345,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(QtWidgets.QLabel("時間足"))
         hbox.addWidget(self.interval_combo)
         hbox.addWidget(self.button)
-        hbox.addWidget(self.d002_check)
         hbox.addWidget(self.strike_roll_check)
         hbox.addWidget(self.entry_signal_check)
         hbox.addWidget(QtWidgets.QLabel("IV"))
@@ -348,6 +353,10 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.iv_call_check)
         hbox.addWidget(self.iv_level_check)
         hbox.addWidget(self.iv_sigma_check)
+        # Δ0.02 は Δ0.1 の外側のウィングなので、IV系列の並びの最後へ
+        # （エントリー判定と同じ順番: ATM / Δ0.1 / 面 / σ / Δ0.02）
+        hbox.addWidget(self.d002_put_check)
+        hbox.addWidget(self.d002_call_check)
         hbox.addWidget(QtWidgets.QLabel("透明度"))
         hbox.addWidget(self.iv_alpha_spin)
         hbox.addWidget(self.prev_days_spin)
@@ -395,7 +404,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         # set IvItem prev iv type
         chart._items["otm_strike_iv"].prev_iv_type = OptionPrevIvType.SAME_STRIKE
         # apply the current Δ0.02 toggle state to the new chart's IvItem
-        chart._items["otm_strike_iv"].show_delta002 = self.d002_check.isChecked()
+        chart._items["otm_strike_iv"].show_delta002_put = self.d002_put_check.isChecked()
+        chart._items["otm_strike_iv"].show_delta002_call = self.d002_call_check.isChecked()
         # apply the current strike-roll label toggle state
         chart._items["otm_strike_iv"].show_strike_roll = self.strike_roll_check.isChecked()
         # apply the current ▲ entry-signal toggle state
@@ -433,12 +443,14 @@ class ChartWizardWidget(QtWidgets.QWidget):
         )
         return chart
 
-    def _on_d002_toggled(self, checked: bool) -> None:
+    def _on_d002_toggled(self, _checked: bool) -> None:
         """Show/hide the Δ0.02 IV series on every open chart's IV subplot."""
+        put: bool = self.d002_put_check.isChecked()
+        call: bool = self.d002_call_check.isChecked()
         for chart in self.charts.values():
             item = chart._items.get("otm_strike_iv")
             if isinstance(item, IvItem):
-                item.set_show_delta002(checked)
+                item.set_show_delta002(put, call)
             # Recompute the IV subplot y-range for the new visibility.
             chart._update_y_range()
 

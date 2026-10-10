@@ -111,7 +111,9 @@ class IvItem(ChartItem):
 
         # Whether the delta 0.02 (d002) put/call IV series are drawn and
         # included in the y-range. Toggled from the chart toolbar checkbox.
-        self.show_delta002: bool = True
+        # Δ0.02 はプット・コールを別々に切り替える（Δ0.1 と同じ扱い）。
+        self.show_delta002_put: bool = True
+        self.show_delta002_call: bool = True
 
         # Whether to annotate strike-roll bars with a "prev|now" strike label
         # (e.g. "55000|56000"). Toggled from the chart toolbar checkbox.
@@ -482,11 +484,14 @@ class IvItem(ChartItem):
             series_points.append(
                 (c_iv, self.eris_c_iv.get(ix - 1), self.bid_pen, self.bid_brush, self.eris_c_strike)
             )
-        if self.show_delta002:
-            series_points += [
-                (d002_p_iv, self.delta002_p_iv.get(ix - 1), self.delta002_p_pen, self.delta002_p_brush, self.delta002_p_strike),
-                (d002_c_iv, self.delta002_c_iv.get(ix - 1), self.delta002_c_pen, self.delta002_c_brush, self.delta002_c_strike),
-            ]
+        if self.show_delta002_put:
+            series_points.append(
+                (d002_p_iv, self.delta002_p_iv.get(ix - 1), self.delta002_p_pen, self.delta002_p_brush, self.delta002_p_strike)
+            )
+        if self.show_delta002_call:
+            series_points.append(
+                (d002_c_iv, self.delta002_c_iv.get(ix - 1), self.delta002_c_pen, self.delta002_c_brush, self.delta002_c_strike)
+            )
         if self.show_atm:
             series_points.append(
                 (atm_iv, self.atm_iv.get(ix - 1), self.atm_pen, self.atm_brush, self.eris_a_strike)
@@ -590,8 +595,10 @@ class IvItem(ChartItem):
         painter.drawLine(start_point, end_point)
 
         iv_vals: list[float] = [n225_vi, atm_iv, p_iv, c_iv]
-        if self.show_delta002:
-            iv_vals += [d002_p_iv, d002_c_iv]
+        if self.show_delta002_put:
+            iv_vals.append(d002_p_iv)
+        if self.show_delta002_call:
+            iv_vals.append(d002_c_iv)
         min_iv_val = min(iv_vals)
         max_iv_val = max(iv_vals)
         if max_iv_val > atm_iv_daily * 0.8:
@@ -719,8 +726,8 @@ class IvItem(ChartItem):
             (self.atm_iv, self.show_atm),
             (self.atm_level_iv, self.show_atm_level),
             (self.sigma_values, self.show_sigma),
-            (self.delta002_p_iv, self.show_delta002),
-            (self.delta002_c_iv, self.show_delta002),
+            (self.delta002_p_iv, self.show_delta002_put),
+            (self.delta002_c_iv, self.show_delta002_call),
         ]
         self._fill_range(first, last)
         values: list[float] = []
@@ -809,9 +816,12 @@ class IvItem(ChartItem):
         if self.show_sigma:
             min_candidates.append(min(sigma_vals))
             max_candidates.append(max(sigma_vals))
-        if self.show_delta002:
-            min_candidates += [d002_p_min, d002_c_min]
-            max_candidates += [d002_c_max, d002_p_max]
+        if self.show_delta002_put:
+            min_candidates.append(d002_p_min)
+            max_candidates.append(d002_p_max)
+        if self.show_delta002_call:
+            min_candidates.append(d002_c_min)
+            max_candidates.append(d002_c_max)
         min_iv = min(min_candidates)
         max_iv = max(max_candidates)
 
@@ -825,11 +835,19 @@ class IvItem(ChartItem):
         self.iv_ranges[(min_ix, max_ix)] = (min_iv, max_iv)
         return min_iv, max_iv
 
-    def set_show_delta002(self, show: bool) -> None:
+    @property
+    def show_delta002(self) -> bool:
+        """Δ0.02 のどちらかが出ているか（軸やラベルのまとめ判定用）。"""
+        return self.show_delta002_put or self.show_delta002_call
+
+    def set_show_delta002(self, put: bool, call: bool | None = None) -> None:
         """Toggle the d002 series; clear caches so bars and y-range recompute."""
-        if self.show_delta002 == show:
+        if call is None:            # 旧来の1引数呼び出し（両方まとめて）
+            call = put
+        if (self.show_delta002_put, self.show_delta002_call) == (put, call):
             return
-        self.show_delta002 = show
+        self.show_delta002_put = put
+        self.show_delta002_call = call
         self.iv_ranges.clear()
         self.refresh_y_range()
         # Invalidate cached bar pictures WITHOUT dropping the keys: the base
@@ -1383,11 +1401,10 @@ class IvItem(ChartItem):
         atm_iv = self.atm_iv.get(last_ix, 0.0)
         n225_vi = self.n225_vi.get(last_ix, 0.0)
         iv_vals: list[float] = [n225_vi, atm_iv, p_iv, c_iv]
-        if self.show_delta002:
-            iv_vals += [
-                self.delta002_p_iv.get(last_ix, 0.0),
-                self.delta002_c_iv.get(last_ix, 0.0),
-            ]
+        if self.show_delta002_put:
+            iv_vals.append(self.delta002_p_iv.get(last_ix, 0.0))
+        if self.show_delta002_call:
+            iv_vals.append(self.delta002_c_iv.get(last_ix, 0.0))
         max_iv_val = max(iv_vals)
         min_iv_val = min(iv_vals)
 
@@ -1444,11 +1461,10 @@ class IvItem(ChartItem):
             specs.append((self.eris_c_iv, self.eris_c_strike, RED_COLOR))
         if self.show_atm:
             specs.append((self.atm_iv, self.eris_a_strike, WHITE_COLOR))
-        if self.show_delta002:
-            specs += [
-                (self.delta002_p_iv, self.delta002_p_strike, BLUE_COLOR),
-                (self.delta002_c_iv, self.delta002_c_strike, YELLOW_COLOR),
-            ]
+        if self.show_delta002_put:
+            specs.append((self.delta002_p_iv, self.delta002_p_strike, BLUE_COLOR))
+        if self.show_delta002_call:
+            specs.append((self.delta002_c_iv, self.delta002_c_strike, YELLOW_COLOR))
 
         # Collect (ix, value, colour, prev_strike, now_strike) for roll bars.
         entries: list[tuple[int, float, tuple, int, int]] = []
@@ -1498,8 +1514,8 @@ class IvItem(ChartItem):
             ("eris_c", self.eris_c_iv, RED_COLOR, "C", self.show_call),
             ("atm", self.atm_iv, WHITE_COLOR, "A", self.show_atm),
             ("atm_level", self.atm_level_iv, SPRING_GREEN_COLOR, "面", self.show_atm_level),
-            ("d002_p", self.delta002_p_iv, BLUE_COLOR, "P2", self.show_delta002),
-            ("d002_c", self.delta002_c_iv, YELLOW_COLOR, "C2", self.show_delta002),
+            ("d002_p", self.delta002_p_iv, BLUE_COLOR, "P2", self.show_delta002_put),
+            ("d002_c", self.delta002_c_iv, YELLOW_COLOR, "C2", self.show_delta002_call),
         ]
 
         for key, data, color, tag, visible in specs:
@@ -1610,14 +1626,14 @@ class IvItem(ChartItem):
 
             # Δ0.02 lines only when the toolbar checkbox is enabled.
             words: list = []
-            if self.show_delta002:
+            if self.show_delta002_put:
                 words.append(put002)
             words += [put, atm, call]
             if self.show_atm_level:
                 words.append(level)
             if self.show_sigma:
                 words.append(f"先物σ黄 {self.sigma_values.get(ix, 0.0):+.2f}")
-            if self.show_delta002:
+            if self.show_delta002_call:
                 words.append(call002)
 
             if self.fixed_reference:
