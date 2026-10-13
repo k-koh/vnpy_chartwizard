@@ -183,13 +183,13 @@ class ChartWizardWidget(QtWidgets.QWidget):
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.MINUTE30)
+            self.interval_combo.findData(Interval.HOUR2)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
         self.days_spin.setMinimum(3)
         self.days_spin.setMaximum(365)
-        self.days_spin.setValue(14)
+        self.days_spin.setValue(45)
         self.days_spin.setSuffix("日")
 
         self.button: QtWidgets.QPushButton = QtWidgets.QPushButton("新規チャート")
@@ -254,19 +254,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
         # 比較先の営業日数。1 = 前日比（毎日0から描き直される）。数日単位で
         # IV水準がどちらに動いたかを見たいときに増やす。
-        self.prev_days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
-        self.prev_days_spin.setRange(1, 20)
-        self.prev_days_spin.setValue(1)
-        self.prev_days_spin.setPrefix("基準")
-        self.prev_days_spin.setSuffix("日前")
-        self.prev_days_spin.setFixedWidth(85)
-        self.prev_days_spin.setToolTip(
-            "IVを何営業日前の引けと比べるか。\n"
-            "1なら前日比（毎日0から描き直し）。5にすると、バーの高さが\n"
-            "「5営業日前に対して今どれだけ上下にいるか」になります。"
-        )
-        self.prev_days_spin.valueChanged.connect(self._on_prev_days_changed)
-
         # 基準日を全バー共通に固定するか（既定）、各足の前日にするか。
         self.fixed_ref_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("基準固定")
         self.fixed_ref_check.setChecked(True)
@@ -359,7 +346,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.d002_call_check)
         hbox.addWidget(QtWidgets.QLabel("透明度"))
         hbox.addWidget(self.iv_alpha_spin)
-        hbox.addWidget(self.prev_days_spin)
         hbox.addWidget(self.fixed_ref_check)
         hbox.addWidget(self.trend_check)
         hbox.addWidget(self.cursor_check)
@@ -417,7 +403,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
         chart._items["otm_strike_iv"].show_call = self.iv_call_check.isChecked()
         chart._items["otm_strike_iv"].show_atm_level = self.iv_level_check.isChecked()
         chart._items["otm_strike_iv"].show_sigma = self.iv_sigma_check.isChecked()
-        chart._items["otm_strike_iv"].prev_days_back = self.prev_days_spin.value()
         chart._items["otm_strike_iv"].fixed_reference = self.fixed_ref_check.isChecked()
         # wire the trend overlay: y-range delegation + current toggle states
         trend_item = chart._items["trend"]
@@ -460,14 +445,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
             item = chart._items.get("otm_strike_iv")
             if isinstance(item, IvItem):
                 item.set_fixed_reference(checked)
-            chart._update_y_range()
-
-    def _on_prev_days_changed(self, value: int) -> None:
-        """IVの比較先を N営業日前 に変える（1なら前日比）。"""
-        for chart in self.charts.values():
-            item = chart._items.get("otm_strike_iv")
-            if isinstance(item, IvItem):
-                item.set_prev_days_back(value)
             chart._update_y_range()
 
     def _on_strike_roll_toggled(self, checked: bool) -> None:

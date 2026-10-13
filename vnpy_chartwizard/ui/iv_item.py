@@ -98,6 +98,7 @@ class IvItem(ChartItem):
         self.prev_iv_type: OptionPrevIvType = OptionPrevIvType.SAME_STRIKE
 
         # 何営業日前の引けと比べるか。1 = 直近の引け。
+        # 比較先は常に「前日の引け」。何営業日前かを選ぶ設定は廃止した。
         self.prev_days_back: int = 1
 
         # 基準日の取り方。
@@ -511,25 +512,12 @@ class IvItem(ChartItem):
         picture = QtGui.QPicture()
         painter = QtGui.QPainter(picture)
 
-        # 基準が1本前と変わった足 = ここでバーが0から描き直される。足の開始位置
-        # （左端）に区切り線を引く。基準固定のときは全足が同じ引けを 0 に
-        # するので、代わりに「その引けの直後の足」に1本だけ引く。右側が
-        # 基準より後、左側が基準より前。線は OFF のときと同じ破線。
-        reference = self.prev_ref_dates.get(ix)
-        previous_reference = self.prev_ref_dates.get(ix - 1)
-        if self.fixed_reference:
-            own_reference = self.own_ref_dates.get(ix)
-            previous_own = self.own_ref_dates.get(ix - 1)
-            divider: bool = bool(
-                reference and own_reference and previous_own
-                and own_reference >= reference > previous_own
-            )
-        else:
-            divider = bool(
-                reference and previous_reference
-                and reference != previous_reference
-            )
-        if divider:
+        # その足がくらべている引けが1本前と変わった位置＝毎日17:00の足。
+        # 基準固定がOFFならそこでバーが0から描き直され、ONでも「どこからが
+        # その日のぶんか」の目印になるので、どちらでも同じ位置に引く。
+        own_reference = self.own_ref_dates.get(ix)
+        previous_own = self.own_ref_dates.get(ix - 1)
+        if own_reference and previous_own and own_reference != previous_own:
             painter.setPen(self.session_pen)
             painter.drawLine(
                 QtCore.QPointF(ix - 0.5, -999999),
@@ -920,18 +908,6 @@ class IvItem(ChartItem):
         return option_engine.prev_day_option.get_prev_day_datetime(
             dt or datetime.now(DB_TZ), self.prev_days_back
         )
-
-    def set_prev_days_back(self, days: int) -> None:
-        """比較先を「N営業日前の引け」に変える（1なら前日比）。
-
-        全バーの値が変わるので、キャッシュを捨てて引き直す。
-        """
-        if self.prev_days_back == days:
-            return
-        self.prev_days_back = days
-        self._clear_cache()
-        self._invalidate()
-        self.refresh_y_range()
 
     def set_show_strike_roll(self, show: bool) -> None:
         """Toggle the strike-roll (prev|now) labels."""
