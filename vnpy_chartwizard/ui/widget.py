@@ -99,9 +99,10 @@ class CustomChartWidget(ChartWidget):
             y_range: tuple = item.get_y_range(min_ix, max_ix)
             view.setRange(yRange=y_range, padding=0.05)
 
-    # Small fixed right-side margin (in bars) so the latest-point value
-    # labels have a little room without a large empty gap.
-    RIGHT_MARGIN_BARS: int = 4
+    # Right-side margin (in bars). The latest-value / σ labels sit on the
+    # right axis now, so the last bar can sit right next to it (エントリー判定
+    # と同じ). 0 still leaves half a bar slot after the last candle.
+    RIGHT_MARGIN_BARS: int = 0
 
     def move_to_right(self) -> None:
         """Snap to the right but leave a small fixed margin for the labels."""

@@ -7,7 +7,7 @@ import pyqtgraph as pg
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, YELLOW_COLOR, WHITE_COLOR, BLUE_COLOR, \
     GREEN_COLOR, ORANGE_COLOR, RED_COLOR, MAGENTA_COLOR, SPRING_GREEN_COLOR, \
     GREY_COLOR, IV_RANGE_WIDTH
-from vnpy.chart.item import ChartItem
+from vnpy.chart.item import ChartItem, make_axis_tag, place_axis_tag
 from vnpy.trader.constant import OptionPrevIvType
 from vnpy.trader.database import DB_TZ
 from vnpy.trader.ui import QtCore, QtGui
@@ -145,11 +145,6 @@ class IvItem(ChartItem):
         # Reusable pool of σ-level labels (±0.5σ, ±1.0σ …) placed at the right
         # edge next to the latest bar's ATM-IV band lines.
         self._sigma_labels: list[pg.TextItem] = []
-
-        # Reusable pool of "IV crash" labels (▼): the first point after each
-        # series' max (over the last two sessions) where IV has fallen at least
-        # 0.5σ ATM below that max.
-        self._crash_labels: list[pg.TextItem] = []
 
         # Reusable pool of per-bar value labels: only the outermost of the
         # three series per bar, so overlapping bars never stack three numbers.
@@ -1007,7 +1002,6 @@ class IvItem(ChartItem):
         self._update_now_sigma_label()
         self._update_roll_labels()
         self._update_sigma_labels()
-        self._update_crash_labels()
         self._update_extreme_labels()
         self._update_entry_labels()
 
@@ -1118,78 +1112,6 @@ class IvItem(ChartItem):
             lbl.setColor(color)
             lbl.setText(f"{value:+.2f}")
             lbl.setPos(ix, value)
-            lbl.show()
-
-    def _update_crash_labels(self) -> None:
-        """Mark, for each of Put / Call / ATM, how far IV has crashed from its
-        max over the current + previous session, in 0.5σ ATM steps. The first
-        point that reaches −0.5σ below the max is labelled ▼0.5σ, the first to
-        reach −1.0σ is ▼1σ, −1.5σ → ▼1.5σ, and so on (one label per new deeper
-        step reached; a single big drop is tagged with the deepest step)."""
-        vb = self.getViewBox()
-        if vb is None or not self.eris_p_iv:
-            for lbl in self._crash_labels:
-                lbl.hide()
-            return
-
-        window: list[int] = self._last_two_session_ix()
-        if not window:
-            for lbl in self._crash_labels:
-                lbl.hide()
-            return
-
-        # (tag, value map, colour) — matches the value-label colours.
-        specs: list[tuple[str, Dict[int, float], tuple]] = [
-            ("P", self.eris_p_iv, DOWN_COLOR),
-            ("C", self.eris_c_iv, RED_COLOR),
-            ("A", self.atm_iv, WHITE_COLOR),
-        ]
-
-        entries: list[tuple[int, float, tuple, str]] = []
-        for tag, value_map, color in specs:
-            pts: list[tuple[int, float]] = [
-                (ix, value_map[ix]) for ix in window if ix in value_map
-            ]
-            if len(pts) < 2:
-                continue
-            # Max IV and its (latest) bar over the window.
-            max_ix, max_iv = pts[0]
-            for ix, iv in pts:
-                if iv >= max_iv:
-                    max_iv, max_ix = iv, ix
-            # 0.5σ ATM IV変動値 (one step) at the peak.
-            step: float = self.atm_iv_daily.get(max_ix, 0.0) * 0.5
-            if step <= 0:
-                continue
-            # Walk forward from the peak; each time IV reaches a new, deeper
-            # 0.5σ step below the max, label that bar with the deepest step.
-            reached: int = 0
-            for ix, iv in pts:
-                if ix <= max_ix:
-                    continue
-                drop: float = max_iv - iv
-                if drop < step:
-                    continue
-                steps: int = int(drop // step)
-                if steps > reached:
-                    reached = steps
-                    mult: float = steps * 0.5
-                    entries.append((ix, iv, color, f"{tag}▼{mult:g}σ"))
-
-        while len(self._crash_labels) < len(entries):
-            lbl = pg.TextItem(anchor=(0.5, 0.0))
-            lbl.setFont(QtGui.QFont("Arial", 9))
-            vb.addItem(lbl, ignoreBounds=True)
-            self._crash_labels.append(lbl)
-
-        for i, lbl in enumerate(self._crash_labels):
-            if i >= len(entries):
-                lbl.hide()
-                continue
-            ix, iv, color, text = entries[i]
-            lbl.setColor(color)
-            lbl.setText(text)
-            lbl.setPos(ix, iv)
             lbl.show()
 
     def _roll_adjusted(
@@ -1403,6 +1325,9 @@ class IvItem(ChartItem):
             vb.addItem(lbl, ignoreBounds=True)
             self._sigma_labels.append(lbl)
 
+        # 最後の足の右は空けない（足をY軸に寄せる）ので、線の左端に置く
+        # （エントリー判定と同じ）。右の目盛りは現在値の札が使う。
+        x_left: float = vb.viewRange()[0][0]
         for i, lbl in enumerate(self._sigma_labels):
             if i >= len(entries):
                 lbl.hide()
@@ -1410,8 +1335,7 @@ class IvItem(ChartItem):
             text, y = entries[i]
             lbl.setColor(WHITE_COLOR)
             lbl.setText(text)
-            # Placed one column right of the value labels (which sit at +0.6).
-            lbl.setPos(last_ix + 1.6, y)
+            lbl.setPos(x_left + 0.3, y)
             lbl.show()
 
     def _update_roll_labels(self) -> None:
@@ -1502,16 +1426,20 @@ class IvItem(ChartItem):
                     label.hide()
                 continue
             if label is None:
-                # Anchor (0, 0.5): left-center at the point → text sits to the
-                # right of (beside) the latest point.
-                label = pg.TextItem(color=color, anchor=(0, 0.5))
-                vb.addItem(label, ignoreBounds=True)
+                # 右の目盛りの上に出す札（エントリー判定と同じ）
+                label = make_axis_tag(vb, color, size=9)
+                label.setZValue(7)     # 先物σの札より手前
                 self._value_labels[key] = label
-            label.setText(f"{tag}{value:+.2f}")
-            # Small gap to the right of the last point so the text does not
-            # overlap the latest marker.
-            label.setPos(last_ix + 0.6, value)
-            label.show()
+            # 高さはその値そのもの。表示範囲の外なら端で止めて矢印を付ける。
+            text: str = f"{tag}{value:+.2f}"
+            pos_y: float = value
+            y_low, y_high = vb.viewRange()[1]
+            if value > y_high:
+                pos_y, text = y_high, f"↑{text}"
+            elif value < y_low:
+                pos_y, text = y_low, f"↓{text}"
+            label.setText(text)
+            place_axis_tag(label, vb, pos_y)
 
     def _update_now_sigma_label(self) -> None:
         """先物の現在値が 0σ（前日の引け）から何σ離れているかを右端に出す。
@@ -1534,10 +1462,9 @@ class IvItem(ChartItem):
         sigma: float = (bar.close_price - base) / (base * daily)
 
         if self._now_sigma_label is None:
-            label = pg.TextItem(color=YELLOW_COLOR, anchor=(0, 0.5))
-            # σ の字が出ない既定フォントを避けて、家族名を明示する。
-            label.setFont(QtGui.QFont("Arial", 8))
-            vb.addItem(label, ignoreBounds=True)
+            # 右の目盛りの上に出す札（エントリー判定と同じ）
+            label = make_axis_tag(vb, YELLOW_COLOR)
+            label.setZValue(5)     # P・C の札の奥
             self._now_sigma_label = label
 
         # σの値そのものを高さにする。PUT/CALL の前日比IVと同じ高さの物差しで
@@ -1554,8 +1481,7 @@ class IvItem(ChartItem):
 
         label = self._now_sigma_label
         label.setText(text)
-        label.setPos(count - 1 + 0.6, pos_y)
-        label.show()
+        place_axis_tag(label, vb, pos_y)
 
     def get_info_text(self, ix: int) -> str:
         """"""
