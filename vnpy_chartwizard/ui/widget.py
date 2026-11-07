@@ -347,7 +347,6 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.d002_call_check)
         hbox.addWidget(QtWidgets.QLabel("透明度"))
         hbox.addWidget(self.iv_alpha_spin)
-        hbox.addWidget(self.fixed_ref_check)
         hbox.addWidget(self.trend_check)
         hbox.addWidget(self.cursor_check)
         hbox.addWidget(self.last_price_check)
@@ -355,6 +354,8 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.range_trend_check)
         hbox.addWidget(self.reload_prev_button)
         hbox.addStretch()
+        # よく切り替えるので右端（Y軸の上）に置く
+        hbox.addWidget(self.fixed_ref_check)
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
         vbox.addLayout(hbox)
