@@ -236,7 +236,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
             # 出さず、ウィング（Put / Call）だけを出す。
             # 初期値は connect の前に入れる。
             box.setChecked(box not in (
-                self.iv_atm_check, self.iv_level_check, self.iv_sigma_check,
+                self.iv_atm_check, self.iv_level_check,
             ))
             if box is not self.iv_sigma_check:
                 box.setToolTip("IVパネルのこの系列の表示/非表示")
