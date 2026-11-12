@@ -158,7 +158,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         self.tab.tabCloseRequested.connect(self.close_tab)
 
         self.symbol_line: QtWidgets.QComboBox = QtWidgets.QComboBox()
-        self.symbol_line.addItems(["nk-2611.JPX", "nk-2612.JPX"])
+        self.symbol_line.addItems(["nk-2612.JPX", "nk-2701.JPX"])
 
         self.interval_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
         self.interval_combo.setSizeAdjustPolicy(
