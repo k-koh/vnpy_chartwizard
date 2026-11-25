@@ -7,7 +7,10 @@ import pyqtgraph as pg
 from vnpy.chart.base import BAR_WIDTH, PEN_WIDTH, to_int, DOWN_COLOR, UP_COLOR, YELLOW_COLOR, WHITE_COLOR, BLUE_COLOR, \
     GREEN_COLOR, ORANGE_COLOR, RED_COLOR, MAGENTA_COLOR, SPRING_GREEN_COLOR, \
     GREY_COLOR, IV_RANGE_WIDTH
-from vnpy.chart.item import ChartItem, make_axis_tag, place_axis_tag
+from vnpy.chart.item import (
+    ChartItem, make_axis_tag, place_axis_tag, SIGMA_STEPS, make_sigma_pen,
+    draw_step_level,
+)
 from vnpy.trader.constant import OptionPrevIvType
 from vnpy.trader.database import DB_TZ
 from vnpy.trader.ui import QtCore, QtGui
@@ -63,6 +66,14 @@ class IvItem(ChartItem):
         super().__init__(manager)
 
         self.base_pen: QtGui.QPen = pg.mkPen(color=WHITE_COLOR, width=PEN_WIDTH)
+        # σ線（エントリー判定の前日比IVと同じ: 白の破線、±0.5σ は濃く、
+        # ±1.0σ 以上は薄く）。
+        self.sigma_half_pen: QtGui.QPen = make_sigma_pen(
+            WHITE_COLOR, 0.75, QtCore.Qt.PenStyle.DashLine
+        )
+        self.sigma_step_pen: QtGui.QPen = make_sigma_pen(
+            WHITE_COLOR, 0.55, QtCore.Qt.PenStyle.DashLine
+        )
         # 基準が切り替わった足の区切り線。株価チャートの市場時間線と同じ
         # グレーの破線にして、IVの線と混ざらないようにする。
         self.session_pen: QtGui.QPen = pg.mkPen(color=GREY_COLOR, width=PEN_WIDTH)
@@ -566,79 +577,21 @@ class IvItem(ChartItem):
                 ix - half, min(0.0, value), half * 2, abs(value)
             ))
 
-        # ATM daily upper line (these remain as before, they are horizontal)
-        painter.setPen(self.base_pen)
-        start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, atm_iv_daily * 0.5)
-        end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, atm_iv_daily * 0.5)
-        painter.drawLine(start_point, end_point)
-
-        # ATM daily lower line
-        start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, -atm_iv_daily * 0.5)
-        end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, -atm_iv_daily * 0.5)
-        painter.drawLine(start_point, end_point)
-
-        iv_vals: list[float] = [n225_vi, atm_iv, p_iv, c_iv]
-        if self.show_delta002_put:
-            iv_vals.append(d002_p_iv)
-        if self.show_delta002_call:
-            iv_vals.append(d002_c_iv)
-        min_iv_val = min(iv_vals)
-        max_iv_val = max(iv_vals)
-        if max_iv_val > atm_iv_daily * 0.8:
-            # upper line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, atm_iv_daily * 1.0)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, atm_iv_daily * 1.0)
-            painter.drawLine(start_point, end_point)
-        elif min_iv_val < -atm_iv_daily * 0.8:
-            # lower line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, -atm_iv_daily * 1.0)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, -atm_iv_daily * 1.0)
-            painter.drawLine(start_point, end_point)
-
-        if max_iv_val > atm_iv_daily * 1.3:
-            # upper line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, atm_iv_daily * 1.5)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, atm_iv_daily * 1.5)
-            painter.drawLine(start_point, end_point)
-        elif min_iv_val < -atm_iv_daily * 1.3:
-            # lower line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, -atm_iv_daily * 1.5)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, -atm_iv_daily * 1.5)
-            painter.drawLine(start_point, end_point)
-
-        if max_iv_val > atm_iv_daily * 1.8:
-            # upper line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, atm_iv_daily * 2.0)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, atm_iv_daily * 2.0)
-            painter.drawLine(start_point, end_point)
-        elif min_iv_val < -atm_iv_daily * 1.8:
-            # lower line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, -atm_iv_daily * 2.0)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, -atm_iv_daily * 2.0)
-            painter.drawLine(start_point, end_point)
-
-        if max_iv_val > atm_iv_daily * 2.3:
-            # upper line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, atm_iv_daily * 2.5)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, atm_iv_daily * 2.5)
-            painter.drawLine(start_point, end_point)
-        elif min_iv_val < -atm_iv_daily * 2.3:
-            # lower line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, -atm_iv_daily * 2.5)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, -atm_iv_daily * 2.5)
-            painter.drawLine(start_point, end_point)
-
-        if max_iv_val > atm_iv_daily * 2.8:
-            # upper line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, atm_iv_daily * 3.0)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, atm_iv_daily * 3.0)
-            painter.drawLine(start_point, end_point)
-        elif min_iv_val < -atm_iv_daily * 2.8:
-            # lower line
-            start_point = QtCore.QPointF(ix - IV_RANGE_WIDTH, -atm_iv_daily * 3.0)
-            end_point = QtCore.QPointF(ix + IV_RANGE_WIDTH, -atm_iv_daily * 3.0)
-            painter.drawLine(start_point, end_point)
-
+        # σの段（±0.5σ … ±3.0σ）は全部引く（エントリー判定の前日比IVと
+        # 同じ）。軸は ±0.5σ までしか広げないので、外の段は見えないだけ。
+        # 見た目もエントリー判定と同じ: 白の破線、±0.5σ は濃く、外の段は薄く。
+        # 1本前の足に ATM IV があれば境目で縦につなぎ、階段状の1本の線にする。
+        if atm_iv_daily > 0:
+            prev_daily: float = self.atm_iv_daily.get(ix - 1, 0.0)
+            for mult in SIGMA_STEPS:
+                painter.setPen(
+                    self.sigma_half_pen if mult == 0.5 else self.sigma_step_pen
+                )
+                for sign in (1.0, -1.0):
+                    draw_step_level(
+                        painter, ix, sign * atm_iv_daily * mult,
+                        sign * prev_daily * mult if prev_daily > 0 else None,
+                    )
 
         # Finish
         painter.end()
@@ -1294,28 +1247,11 @@ class IvItem(ChartItem):
                 lbl.hide()
             return
 
-        p_iv = self.eris_p_iv.get(last_ix, 0.0)
-        c_iv = self.eris_c_iv.get(last_ix, 0.0)
-        atm_iv = self.atm_iv.get(last_ix, 0.0)
-        n225_vi = self.n225_vi.get(last_ix, 0.0)
-        iv_vals: list[float] = [n225_vi, atm_iv, p_iv, c_iv]
-        if self.show_delta002_put:
-            iv_vals.append(self.delta002_p_iv.get(last_ix, 0.0))
-        if self.show_delta002_call:
-            iv_vals.append(self.delta002_c_iv.get(last_ix, 0.0))
-        max_iv_val = max(iv_vals)
-        min_iv_val = min(iv_vals)
-
-        # (text, y-value) — ±0.5σ always, then the one-per-block ladder.
-        entries: list[tuple[str, float]] = [
-            ("+0.5σ", atm_iv_daily * 0.5),
-            ("-0.5σ", -atm_iv_daily * 0.5),
-        ]
-        for th, mult in ((0.8, 1.0), (1.3, 1.5), (1.8, 2.0), (2.3, 2.5), (2.8, 3.0)):
-            if max_iv_val > atm_iv_daily * th:
-                entries.append((f"+{mult:.1f}σ", atm_iv_daily * mult))
-            elif min_iv_val < -atm_iv_daily * th:
-                entries.append((f"-{mult:.1f}σ", -atm_iv_daily * mult))
+        # (text, y-value) — 全部の段。表示範囲の外の札は下で隠す。
+        entries: list[tuple[str, float]] = []
+        for mult in SIGMA_STEPS:
+            entries.append((f"+{mult:.1f}σ", atm_iv_daily * mult))
+            entries.append((f"-{mult:.1f}σ", -atm_iv_daily * mult))
 
         while len(self._sigma_labels) < len(entries):
             lbl = pg.TextItem(anchor=(0.0, 0.5))
@@ -1327,12 +1263,15 @@ class IvItem(ChartItem):
 
         # 最後の足の右は空けない（足をY軸に寄せる）ので、線の左端に置く
         # （エントリー判定と同じ）。右の目盛りは現在値の札が使う。
-        x_left: float = vb.viewRange()[0][0]
+        (x_left, _x_right), (y_low, y_high) = vb.viewRange()
         for i, lbl in enumerate(self._sigma_labels):
             if i >= len(entries):
                 lbl.hide()
                 continue
             text, y = entries[i]
+            if not (y_low <= y <= y_high):
+                lbl.hide()
+                continue
             lbl.setColor(WHITE_COLOR)
             lbl.setText(text)
             lbl.setPos(x_left + 0.3, y)
@@ -1471,7 +1410,7 @@ class IvItem(ChartItem):
         # 並ぶので、どちらが先行しているかを目で比べられる（単位は σ と
         # IVポイントで違うが、見比べるための置き方）。軸の外に出たときは
         # 端で止めて、はみ出していることを矢印で示す。
-        text: str = f"{sigma:+.2f}σ"
+        text: str = f"{sigma:+.2f}"
         pos_y: float = sigma
         y_low, y_high = vb.viewRange()[1]
         if sigma > y_high:

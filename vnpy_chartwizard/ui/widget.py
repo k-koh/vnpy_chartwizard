@@ -32,6 +32,30 @@ from ..engine import APP_NAME, EVENT_CHART_HISTORY, ChartWizardEngine
 # Persisted manual (範囲) trend lines, keyed by vt_symbol → [[start_iso, end_iso], ...].
 TRENDLINE_SETTING_FILENAME = "chartwizard_trendlines.json"
 
+
+def jpx_market_open(now: datetime) -> bool:
+    """JPX の先物が立会中か（日中 08:45〜15:45、夜間 17:00〜翌06:00）。
+
+    休場の時間帯（06:00〜08:45、15:45〜17:00、土曜 06:00〜月曜 08:45）にも
+    スナップショットのティックは届く。それで足を作ると、取引の無い時刻に
+    新しい足が並んでしまうので、その間のティックは足に入れない。
+    引け（15:45 / 06:00）の約定は少し遅れて届くので、1分だけ余裕を見る。
+    """
+    t: time = now.time()
+    weekday: int = now.weekday()
+    if weekday == 5 and t >= time(6, 1):          # 土曜 夜間の引け以降
+        return False
+    if weekday == 6:                              # 日曜
+        return False
+    if weekday == 0 and t < time(8, 45):          # 月曜 日中の寄りまで
+        return False
+    if time(8, 45) <= t < time(15, 46):           # 日中
+        return True
+    if t >= time(17, 0) or t < time(6, 1):        # 夜間
+        return True
+    return False
+
+
 class CustomChartWidget(ChartWidget):
     """
     Custom ChartWidget that holds a reference to main_engine.
@@ -184,7 +208,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         ]:
             self.interval_combo.addItem(interval.value, interval)
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findData(Interval.HOUR2)
+            self.interval_combo.findData(Interval.HOUR)
         )
 
         self.days_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
@@ -325,6 +349,16 @@ class ChartWizardWidget(QtWidgets.QWidget):
         )
         self.reload_prev_button.clicked.connect(self._on_reload_prev_day)
 
+        # Tick更新（エントリー判定と同じ）: ON の間はティックで形成中の足を
+        # 動かす。OFF にすると読み込んだ履歴のまま止める。
+        self.tick_check: QtWidgets.QCheckBox = QtWidgets.QCheckBox("Tick更新")
+        self.tick_check.setChecked(True)
+        self.tick_check.setToolTip(
+            "ティックが来るたびに、形成中の足をライブ値で更新します。\n"
+            "休場の時間帯（06:00〜08:45、15:45〜17:00、週末、休場モード）の\n"
+            "ティックでは新しい足を作りません。"
+        )
+
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(QtWidgets.QLabel("期間"))
         hbox.addWidget(self.days_spin)
@@ -353,6 +387,7 @@ class ChartWizardWidget(QtWidgets.QWidget):
         hbox.addWidget(self.round_lines_check)
         hbox.addWidget(self.range_trend_check)
         hbox.addWidget(self.reload_prev_button)
+        hbox.addWidget(self.tick_check)
         hbox.addStretch()
         # よく切り替えるので右端（Y軸の上）に置く
         hbox.addWidget(self.fixed_ref_check)
@@ -728,10 +763,14 @@ class ChartWizardWidget(QtWidgets.QWidget):
 
     def process_tick_event(self, event: Event) -> None:
         """处理Tick事件"""
+        if not self.tick_check.isChecked():
+            return
         tick: TickData = event.data
         bg: BarGenerator | None = self.bgs.get(tick.vt_symbol, None)
 
         if bg and tick.vt_symbol in self.history_inited:
+            if not self._market_open():
+                return              # 休場中のティックで新しい足を作らない
             bg.update_tick(tick)
 
             chart: ChartWidget = self.charts[tick.vt_symbol]
@@ -752,6 +791,14 @@ class ChartWizardWidget(QtWidgets.QWidget):
                 bar = copy(bg.bar)
             bar.datetime = bar.datetime.replace(second=0, microsecond=0)
             chart.update_bar(bar)
+
+    def _market_open(self) -> bool:
+        """立会中か。時刻（jpx_market_open）と、KBSゲートウェイの休場モード
+        （祝日など。データ記録と同じ判定）の両方を見る。"""
+        gateway = self.main_engine.get_gateway("KBS")
+        if gateway is not None and getattr(gateway, "market_closed_mode", False):
+            return False
+        return jpx_market_open(datetime.now())
 
     def process_history_event(self, event: Event) -> None:
         """处理历史事件"""
